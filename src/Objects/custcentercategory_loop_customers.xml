@@ -1,0 +1,5 @@
+<centercategory scriptid="custcentercategory_loop_customers">
+  <center>BASIC</center>
+  <centertab>[scriptid=custcentertab_loop_integration]</centertab>
+  <label>Customers</label>
+</centercategory>

@@ -1,0 +1,19 @@
+<centercategory scriptid="custcentercategory_loop_locations">
+  <center>BASIC</center>
+  <centertab>[scriptid=custcentertab_loop_integration]</centertab>
+  <label>Locations</label>
+  <links>
+    <link>
+      <linklabel>Imported Locations</linklabel>
+      <linkobject>[scriptid=customsearch_loop_locations]</linkobject>
+      <linktasktype>SRCH_RSLT</linktasktype>
+      <shortlist>F</shortlist>
+    </link>
+    <link>
+      <linklabel>Sync Locations</linklabel>
+      <linkobject>[scriptid=customscript_loop_sl_integration.customdeploy_loop_sl_locations]</linkobject>
+      <linktasktype>SCRIPT</linktasktype>
+      <shortlist>F</shortlist>
+    </link>
+  </links>
+</centercategory>

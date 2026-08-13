@@ -1,0 +1,19 @@
+<centercategory scriptid="custcentercategory_loop_inventory">
+  <center>BASIC</center>
+  <centertab>[scriptid=custcentertab_loop_integration]</centertab>
+  <label>Inventory</label>
+  <links>
+    <link>
+      <linklabel>Imported Inventory</linklabel>
+      <linkobject>[scriptid=customsearch_loop_inventory]</linkobject>
+      <linktasktype>SRCH_RSLT</linktasktype>
+      <shortlist>F</shortlist>
+    </link>
+    <link>
+      <linklabel>Sync Inventory</linklabel>
+      <linkobject>[scriptid=customscript_loop_sl_integration.customdeploy_loop_sl_inventory]</linkobject>
+      <linktasktype>SCRIPT</linktasktype>
+      <shortlist>F</shortlist>
+    </link>
+  </links>
+</centercategory>

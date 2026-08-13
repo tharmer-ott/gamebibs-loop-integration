@@ -1,0 +1,19 @@
+<centercategory scriptid="custcentercategory_loop_orders">
+  <center>BASIC</center>
+  <centertab>[scriptid=custcentertab_loop_integration]</centertab>
+  <label>Orders</label>
+  <links>
+    <link>
+      <linklabel>Imported Orders</linklabel>
+      <linkobject>[scriptid=customsearch_loop_orders]</linkobject>
+      <linktasktype>SRCH_RSLT</linktasktype>
+      <shortlist>F</shortlist>
+    </link>
+    <link>
+      <linklabel>Sync Orders</linklabel>
+      <linkobject>[scriptid=customscript_loop_sl_integration.customdeploy_loop_sl_orders]</linkobject>
+      <linktasktype>SCRIPT</linktasktype>
+      <shortlist>F</shortlist>
+    </link>
+  </links>
+</centercategory>

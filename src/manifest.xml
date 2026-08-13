@@ -1,0 +1,59 @@
+<manifest projecttype="ACCOUNTCUSTOMIZATION">
+  <projectname>LoopIntegration</projectname>
+  <frameworkversion>1.0</frameworkversion>
+  <dependencies>
+    <features>
+      <feature required="false">WEBSITE</feature>
+      <feature required="false">ADVRECEIVING</feature>
+      <feature required="true">SERVERSIDESCRIPTING</feature>
+      <feature required="false">MULTILOCINVT</feature>
+      <feature required="false">MATRIXITEMS</feature>
+      <feature required="false">INVENTORY</feature>
+      <feature required="false">CRM</feature>
+      <feature required="false">OPPORTUNITIES</feature>
+      <feature required="false">RECEIVABLES</feature>
+      <feature required="false">ACCOUNTING</feature>
+      <feature required="true">CUSTOMRECORDS</feature>
+      <feature required="false">PAYABLES</feature>
+      <feature required="false">CREATESUITEBUNDLES</feature>
+    </features>
+    <objects>
+      <object>custbody_11187_pref_entity_bank</object>
+      <object>customrecord_2663_payment_file_format</object>
+      <object>custentity_9572_refundcust_entitybnk_sub</object>
+      <object>custbody_15889_cust_refund_entity_bank</object>
+      <object>custbody_sps_acknowledgement_status</object>
+      <object>custbodyintegrationstatus</object>
+      <object>custbody_15699_exclude_from_ep_process</object>
+      <object>custentity_9572_custref_file_format</object>
+      <object>custbody_15529_vendor_entity_bank</object>
+      <object>customrecord_2663_entity_bank_details</object>
+      <object>custbody_11724_bank_fee</object>
+      <object>custentity_9572_refcust_entitybnkformat</object>
+      <object>custbody_10184_customer_entity_bank</object>
+      <object>custbody_sps_ponum_from_salesorder</object>
+      <object>custentity_9572_dd_file_format</object>
+      <object>custbody_11724_pay_bank_fees</object>
+      <object>custentityphone_number_2</object>
+      <object>customlist_sps_po_acknowledgment</object>
+      <object>custbody_15529_emp_entity_bank</object>
+      <object>customlistintegrationstatuses</object>
+      <object>custentity_9572_ddcust_entitybank_sub</object>
+      <object>customsearch1530</object>
+      <object>custentity_9572_ddcust_entitybnkformat</object>
+    </objects>
+    <applications>
+      <application id="com.suitesuccess.erpcore">
+        <objects>
+          <object>customrecord_atlas_inv_adj_reasn</object>
+          <object>custbody_atlas_inv_adj_reason</object>
+        </objects>
+      </application>
+      <application id="com.paypal.braintree">
+        <objects>
+          <object>custentity_es_bt_customer_url</object>
+        </objects>
+      </application>
+    </applications>
+  </dependencies>
+</manifest>

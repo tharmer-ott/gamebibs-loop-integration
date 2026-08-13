@@ -1,0 +1,19 @@
+<centercategory scriptid="custcentercategory_loop_returns">
+  <center>BASIC</center>
+  <centertab>[scriptid=custcentertab_loop_integration]</centertab>
+  <label>Returns</label>
+  <links>
+    <link>
+      <linklabel>Imported Returns</linklabel>
+      <linkobject>[scriptid=customsearch_loop_returns]</linkobject>
+      <linktasktype>SRCH_RSLT</linktasktype>
+      <shortlist>F</shortlist>
+    </link>
+    <link>
+      <linklabel>Sync Returns</linklabel>
+      <linkobject>[scriptid=customscript_loop_sl_integration.customdeploy_loop_sl_returns]</linkobject>
+      <linktasktype>SCRIPT</linktasktype>
+      <shortlist>F</shortlist>
+    </link>
+  </links>
+</centercategory>

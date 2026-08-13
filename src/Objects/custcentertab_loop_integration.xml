@@ -1,0 +1,10 @@
+<centertab scriptid="custcentertab_loop_integration">
+  <allcustomers>F</allcustomers>
+  <allemployees>F</allemployees>
+  <allpartners>F</allpartners>
+  <allroles>T</allroles>
+  <allvendors>F</allvendors>
+  <audslctrole></audslctrole>
+  <center>BASIC</center>
+  <label>Loop</label>
+</centertab>
