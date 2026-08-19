@@ -7,7 +7,7 @@ NetSuite SuiteScript integration between **GameBibs (NetSuite)** and **Loop Retu
 
 See [`loop_api_spec.md`](loop_api_spec.md) for the Loop API reference and GameBibs-specific field mappings.
 
-> ⚠️ **This integration moves real money.** Saving a Customer Refund transforms the original Customer Deposit and **fires the live Braintree refund**. Treat the returns flow with production-level care.
+> ⚠️ **This integration is intended to move real money.** Saving a Customer Refund transforms the original Customer Deposit and *should* **fire the live Braintree refund** — but that behavior is **not yet confirmed**, and full compatibility with the Braintree flow can only be validated once live testing begins. Until it's proven out, treat the returns flow with production-level care and assume it can move money for real.
 
 ---
 
