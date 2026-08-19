@@ -35,9 +35,6 @@ The **returns (inbound)** flow is **not yet live** — see the go-live items bel
 
 The **outbound** test scopes are cleared: `loop_orders.js` replaced its `SO31015` filter with the `7/31/2026` date floor plus a `TEST_ORDER_TRANID` toggle (default `null`), and `loop_products.js` uses `TEST_GROUP_IDS` (default `null`). Note [`loop_products_delete.js`](src/FileCabinet/SuiteScripts/Loop/loop_products_delete.js) still carries `TEST_PARENT_ID = 846` — it's a manual cleanup utility, so scope it deliberately before each run.
 
-### 🟠 Non-deterministic tax reconciliation
-In [`loop_orders.js`](src/FileCabinet/SuiteScripts/Loop/loop_orders.js), when allocated tax doesn't reconcile to the order total by more than 2 cents, the difference is **spread one cent at a time across randomly chosen lines** (`Math.random()`). This masks what the code itself calls "a data anomaly" instead of surfacing it, and produces a **different allocation on every re-sync** of the same order. Consider failing loudly (or logging + deterministic allocation) on large diffs.
-
 ### 🟡 Unfilled deploy placeholder
 `loop_sl_integration.js` has `MR_PRIMARY_KEY = 'TODO'` — until filled with the MR script record's internal ID, the Suitelet can't redirect to the Map/Reduce status page (it falls back to a plain text confirmation).
 
