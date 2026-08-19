@@ -51,7 +51,7 @@ In [`loop_orders.js`](src/FileCabinet/SuiteScripts/Loop/loop_orders.js), when al
 ### Before go-live 🔴
 - [x] Remove the `SO31015` test filter from `loop_orders.js`. *(done — replaced with the `7/31/2026` date floor + `TEST_ORDER_TRANID` toggle)*
 - [ ] Remove the `ONLY_ORDER_NAME = 'SO31057'` test filter from `loop_returns.js` (returns only).
-- [ ] Fix (or confirm) the returns lookback unit bug.
+- [ ] Confirm / update backlog update window. *(returns lookback in `loop_returns.js`; the param is labeled minutes but computed as hours — reconcile the unit before tuning)*
 - [ ] Fill in `MR_PRIMARY_KEY` in `loop_sl_integration.js`.
 - [ ] Set `DEBUG = false` in `loop_returns.js` and remove `TEMP (diagnostics)` logs.
 - [ ] Verify the refund flow against a **live Braintree sandbox → production** dry run with a known order.
