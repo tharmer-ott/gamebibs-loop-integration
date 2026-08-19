@@ -17,12 +17,10 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
 
     var LOOP_API_URL = 'https://api.loopreturns.com/api/v1';
 
-    // TEST MODE: limit getInputData to a single Item Group for a small test run.
-    // Set to null to process all groups.
-    //
-    // Currently scoped to GBA-07 (parent internal id 160) to repush that series.
-    // TO REVERT: set this back to null before the next full production run.
-    var TEST_GROUP_ID = '10';
+    // TEST MODE: limit getInputData to a small set of Item Groups for a test run.
+    // List one or more parent Item (InvtPart) internal IDs; set to null or []
+    // to process all groups (full catalog).
+    var TEST_GROUP_IDS = null;
 
     function buildHeaders() {
         return {
@@ -81,11 +79,11 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
     }
 
     function getInputData() {
-        if (TEST_GROUP_ID) {
-            log.audit({ title: 'TEST MODE', details: 'Restricting run to Item Group ' + TEST_GROUP_ID });
-            var testGroup = {};
-            testGroup[TEST_GROUP_ID] = true;
-            return attachGroupDetails(testGroup);
+        if (TEST_GROUP_IDS && TEST_GROUP_IDS.length) {
+            log.audit({ title: 'TEST MODE', details: 'Restricting run to Item Group(s): ' + TEST_GROUP_IDS.join(', ') });
+            var testGroups = {};
+            TEST_GROUP_IDS.forEach(function (id) { testGroups[id] = true; });
+            return attachGroupDetails(testGroups);
         }
 
         var groupIds = {};

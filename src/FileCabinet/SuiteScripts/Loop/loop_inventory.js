@@ -2,9 +2,15 @@
  * @NApiVersion 2.1
  * @NModuleScope Public
  */
-define(['N/search', 'N/https', 'N/log'], function (search, https, log) {
+define(['N/search', 'N/https', 'N/log', 'N/runtime'], function (search, https, log, runtime) {
 
     var LOOP_API_URL = 'https://api.loopreturns.com/api/v1';
+
+    // GameBibs has a single fulfillment location, but its Loop ID differs by environment,
+    // so resolve it from envType rather than hardcoding one value (mirrors loop_orders.js).
+    var LOOP_LOCATION_ID = runtime.envType === runtime.EnvType.SANDBOX
+        ? '894555345163870208'   // sandbox Loop location
+        : '929970130160201728';  // production Loop location
 
     function buildHeaders() {
         return {
@@ -14,9 +20,11 @@ define(['N/search', 'N/https', 'N/log'], function (search, https, log) {
     }
 
     function getInputData() {
-        // Returns one row per item-location combination.
-        // NS expands locationquantityavailable into separate rows when the location
-        // column is included — exactly what we need to push per-location counts to Loop.
+        // One row per synced variant. GameBibs runs a single inventory location, so the
+        // aggregate available count equals that one location's available — push it straight
+        // to the single Loop location, no per-location breakdown. The `location` column is
+        // intentionally omitted: NetSuite only populates it when there are multiple locations
+        // to break out, so with one location it comes back blank for every row.
         return search.create({
             type: search.Type.INVENTORY_ITEM,
             filters: [
@@ -34,7 +42,6 @@ define(['N/search', 'N/https', 'N/log'], function (search, https, log) {
                 search.createColumn({ name: 'internalid' }),
                 search.createColumn({ name: 'itemid' }),
                 search.createColumn({ name: 'custitem_loop_product_variant_id' }),
-                search.createColumn({ name: 'location' }),
                 search.createColumn({ name: 'locationquantityavailable' })
             ]
         });
@@ -49,49 +56,18 @@ define(['N/search', 'N/https', 'N/log'], function (search, https, log) {
         var loopVariantId = values.custitem_loop_product_variant_id;
         var availableQty  = parseInt(values.locationquantityavailable, 10) || 0;
 
-        // location column returns [{value: nsLocationId, text: locationName}]
-        var locationField  = values.location;
-        var nsLocationId   = Array.isArray(locationField) ? locationField[0].value : locationField;
-        var nsLocationName = Array.isArray(locationField) ? locationField[0].text  : locationField;
-
         log.audit({
             title:   'Inventory Map [' + internalId + ']',
-            details: 'SKU: ' + sku + ' | Location: ' + nsLocationName + ' | Qty: ' + availableQty
+            details: 'SKU: ' + sku + ' | Qty: ' + availableQty
         });
-
-        if (!nsLocationId) {
-            log.audit({ title: 'Inventory Skipped [' + internalId + ']', details: 'No location on row — skipping ' + sku });
-            return;
-        }
-
-        // Look up the Loop location ID stored on the NS location record
-        var loopLocationId;
-        try {
-            var locationFields = search.lookupFields({
-                type:    'location',
-                id:      nsLocationId,
-                columns: ['custrecord_loop_location_id']
-            });
-            loopLocationId = locationFields.custrecord_loop_location_id;
-        } catch (lookupErr) {
-            log.error({ title: 'Inventory Location Lookup Failed [' + nsLocationId + ']', details: lookupErr.message });
-            return;
-        }
-
-        if (!loopLocationId) {
-            log.audit({
-                title:   'Inventory Skipped — Location Not Synced [' + internalId + ']',
-                details: 'NS Location ' + nsLocationId + ' has no Loop ID — run Locations sync first'
-            });
-            return;
-        }
 
         var payload = JSON.stringify({ available_count: availableQty });
 
         try {
-            // PUT upserts inventory by the variant/location path — works for both create and update
+            // PUT upserts inventory by the variant/location path — works for both create and update.
+            // Single location: LOOP_LOCATION_ID resolves by environment.
             var response = https.put({
-                url:     LOOP_API_URL + '/inventories/' + loopVariantId + '/' + loopLocationId,
+                url:     LOOP_API_URL + '/inventories/' + loopVariantId + '/' + LOOP_LOCATION_ID,
                 headers: buildHeaders(),
                 body:    payload
             });
@@ -99,27 +75,26 @@ define(['N/search', 'N/https', 'N/log'], function (search, https, log) {
             if (response.code === 200 || response.code === 201) {
                 log.audit({
                     title:   'Inventory Updated [' + internalId + ']',
-                    details: 'SKU: ' + sku + ' | Location: ' + nsLocationName + ' | Qty: ' + availableQty + ' | Variant ID: ' + loopVariantId
+                    details: 'SKU: ' + sku + ' | Qty: ' + availableQty + ' | Variant ID: ' + loopVariantId
                 });
                 context.write({
-                    key:   internalId + '_' + nsLocationId,
+                    key:   String(internalId),
                     value: JSON.stringify({ status: 'success', qty: availableQty })
                 });
             } else {
                 log.error({
                     title:   'Loop Inventory API Error',
-                    details: 'Item ' + internalId + ' | Location ' + nsLocationId +
-                             ' | HTTP ' + response.code + ' | ' + response.body
+                    details: 'Item ' + internalId + ' | HTTP ' + response.code + ' | ' + response.body
                 });
                 context.write({
-                    key:   internalId + '_' + nsLocationId,
+                    key:   String(internalId),
                     value: JSON.stringify({ status: 'error', code: response.code })
                 });
             }
         } catch (e) {
             log.error({ title: 'Inventory Map Exception [' + internalId + ']', details: e.message });
             context.write({
-                key:   internalId + '_' + nsLocationId,
+                key:   String(internalId),
                 value: JSON.stringify({ status: 'error', message: e.message })
             });
         }

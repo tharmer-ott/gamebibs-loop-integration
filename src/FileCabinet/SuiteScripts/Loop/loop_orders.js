@@ -2,9 +2,20 @@
  * @NApiVersion 2.1
  * @NModuleScope Public
  */
-define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, https, log) {
+define(['N/search', 'N/record', 'N/https', 'N/log', 'N/runtime'], function (search, record, https, log, runtime) {
 
     var LOOP_API_URL = 'https://api.loopreturns.com/api/v1';
+
+    // GameBibs has a single fulfillment location, but its Loop ID differs by environment,
+    // so resolve it from envType rather than hardcoding one value (mirrors the envType
+    // check loop_returns.js uses for its sandbox Cash behavior).
+    var LOOP_LOCATION_ID = runtime.envType === runtime.EnvType.SANDBOX
+        ? '894555345163870208'   // sandbox Loop location
+        : '929970130160201728';  // production Loop location
+
+    // TEST MODE: restrict getInputData to a single order (by tranid) for a sanity check.
+    // Set to null to run the full qualifying set.
+    var TEST_ORDER_TRANID = null;
 
     function buildHeaders() {
         return {
@@ -44,27 +55,34 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
 
 function getInputData() {
         // One row per Sales Order not yet pushed to Loop
+        var filters = [
+            ['type', 'anyof', 'SalesOrd'],
+            'AND',
+            ['mainline', 'is', 'T'],
+            'AND',
+            [
+                ['status', 'anyof', ['SalesOrd:D', 'SalesOrd:E']],  // Partially Fulfilled / Pending Billing+Partial — always re-sync
+                'OR',
+                [
+                    ['status', 'anyof', ['SalesOrd:F', 'SalesOrd:G']],             // Pending Billing (fully fulfilled) — first sync only
+                    'AND',
+                    ['custbody_loop_order_id', 'isempty', '']
+                ]
+            ],
+            'AND',
+            ['entity', 'anyof', ['1020']],  // BigCommerce bucket customer 491 only (Amazon is not synced to Loop)
+            'AND',
+            ['trandate', 'onorafter', '7/31/2026']  // Go-live cutoff: never sync orders dated before this
+        ];
+
+        // TEST MODE: narrow to a single order for a sanity check (see TEST_ORDER_TRANID).
+        if (TEST_ORDER_TRANID) {
+            filters.push('AND', ['tranid', 'is', TEST_ORDER_TRANID]);
+        }
+
         return search.create({
             type: search.Type.TRANSACTION,
-            filters: [
-                ['type', 'anyof', 'SalesOrd'],
-                'AND',
-                ['mainline', 'is', 'T'],
-                'AND',
-                [
-                    ['status', 'anyof', ['SalesOrd:D', 'SalesOrd:E']],  // Partially Fulfilled / Pending Billing+Partial — always re-sync
-                    'OR',
-                    [
-                        ['status', 'anyof', ['SalesOrd:F', 'SalesOrd:G']],             // Pending Billing (fully fulfilled) — first sync only
-                        'AND',
-                        ['custbody_loop_order_id', 'isempty', '']
-                    ]
-                ],
-                'AND',
-                ['entity', 'anyof', ['1020']],  // BigCommerce bucket customer 491 only (Amazon is not synced to Loop)
-                'AND',
-                ['tranid', 'is', 'SO31015']  // TEMP (testing): single order — remove to sync the full set
-            ],
+            filters: filters,
             columns: [
                 search.createColumn({ name: 'internalid' }),
                 search.createColumn({ name: 'tranid' }),
@@ -304,11 +322,15 @@ function getInputData() {
         var shippingAddress = null;
         var taxableByLine   = {}; // { lineSeq: true/false }
         var addressee       = ''; // recipient name from shipping subrecord — used for customer inline upsert
+        var orderEmail      = ''; // customer email from the SO 'email' body field — used for customer inline upsert
         var shippingTax     = 0;  // from custbody_fa_order_total JSON — applied to the shipping line's tax_lines
         var shippingTaxRate = 0;  // decimal fraction (e.g. 0.097411) for the shipping tax line's rate
         var itemTaxRate     = 0;  // decimal fraction (e.g. 0.097498) for the item tax lines' rate
         try {
             var soRec = record.load({ type: record.Type.SALES_ORDER, id: soId, isDynamic: false });
+
+            // Customer email lives on the SO 'email' body field — used for the inline customer upsert.
+            orderEmail = soRec.getValue({ fieldId: 'email' }) || '';
 
             // custbody_fa_order_total is a JSON string with the connector's amount breakdown,
             // e.g. {"orderTotal":85.67,"itemTotal":69.95,"taxTotal":7.61,"shippingCost":8.11,"shippingTax":0.79,"discountTotal":0.0}
@@ -462,8 +484,9 @@ function getInputData() {
             created_at:                  toIso(values.trandate),
             updated_at:                  toIso(values.lastmodifieddate) || toIso(values.trandate),
             // Customer is upserted inline — Loop requires first_name, last_name, email, and phone
-            // all present together. Split addressee into first/last; use placeholders for
-            // email and phone since B2C orders don't carry that data on the shipping subrecord.
+            // all present together. Split addressee into first/last; email comes from the SO
+            // 'email' body field (placeholder fallback when blank). Phone stays a placeholder
+            // since B2C orders don't carry it on the record.
             customer: (function () {
                 var fullName   = addressee || soNumber;
                 var spaceIdx   = fullName.lastIndexOf(' ');
@@ -473,7 +496,7 @@ function getInputData() {
                     external_id: String(soId),
                     first_name:  firstName,
                     last_name:   lastName,
-                    email:       'none@email.com',
+                    email:       orderEmail || 'none@email.com',
                     phone:       '000-000-0000'
                 };
             }()),
@@ -652,8 +675,8 @@ function getInputData() {
                             };
                         })
                     };
-                    // GameBibs has a single location — hardcoded Loop location ID
-                    fulfillObj.location = { id: '__LOOPID__894555345163870208' };
+                    // GameBibs has a single location; LOOP_LOCATION_ID resolves by environment
+                    fulfillObj.location = { id: '__LOOPID__' + LOOP_LOCATION_ID };
                     if (f.shippingCarrier) fulfillObj.shipping_carrier = f.shippingCarrier;
                     return fulfillObj;
                 });
