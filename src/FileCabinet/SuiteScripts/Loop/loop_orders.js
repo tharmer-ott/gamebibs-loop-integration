@@ -2,7 +2,7 @@
  * @NApiVersion 2.1
  * @NModuleScope Public
  */
-define(['N/search', 'N/record', 'N/https', 'N/log', 'N/runtime'], function (search, record, https, log, runtime) {
+define(['N/search', 'N/record', 'N/https', 'N/log', 'N/runtime', './bc_order_metadata'], function (search, record, https, log, runtime, bcMeta) {
 
     var LOOP_API_URL = 'https://api.loopreturns.com/api/v1';
 
@@ -13,9 +13,16 @@ define(['N/search', 'N/record', 'N/https', 'N/log', 'N/runtime'], function (sear
         ? '894555345163870208'   // sandbox Loop location
         : '929970130160201728';  // production Loop location
 
-    // TEST MODE: restrict getInputData to a single order (by tranid) for a sanity check.
-    // Set to null to run the full qualifying set.
-    var TEST_ORDER_TRANID = null;
+    // TEST MODE: restrict getInputData to specific orders (by tranid). /orders is a PUT (upsert),
+    // so re-running these updates the existing Loop orders. Set to null/[] for the full set.
+    var TEST_ORDER_TRANIDS = ['SO39275', 'SO39620'];
+
+    // Return Coverage — a digital "product" the customer opts into at checkout (Loop's
+    // "Order protection", return coverage only; shipping is charged separately on the physical
+    // items). On the SO it's a non-inventory charge line named this; because it has no Loop
+    // product id it can't be a line_item, so it's sent to Loop as a fees[] entry instead.
+    // Matched by item name (lower-cased).
+    var RETURN_COVERAGE_ITEM = 'return-coverage';
 
     function buildHeaders() {
         return {
@@ -75,9 +82,14 @@ function getInputData() {
             ['trandate', 'onorafter', '7/31/2026']  // Go-live cutoff: never sync orders dated before this
         ];
 
-        // TEST MODE: narrow to a single order for a sanity check (see TEST_ORDER_TRANID).
-        if (TEST_ORDER_TRANID) {
-            filters.push('AND', ['tranid', 'is', TEST_ORDER_TRANID]);
+        // TEST MODE: narrow to the specific orders in TEST_ORDER_TRANIDS (tranid OR-group).
+        if (TEST_ORDER_TRANIDS && TEST_ORDER_TRANIDS.length) {
+            var tranidGroup = [];
+            TEST_ORDER_TRANIDS.forEach(function (t, i) {
+                if (i) tranidGroup.push('OR');
+                tranidGroup.push(['tranid', 'is', t]);
+            });
+            filters.push('AND', tranidGroup);
         }
 
         return search.create({
@@ -174,6 +186,37 @@ function getInputData() {
             return true;
         });
         return discounts;
+    }
+
+    // Sum the Return Coverage charge on the SO (item name RETURN_COVERAGE_ITEM), in integer cents.
+    // Returns 0 when the customer didn't add coverage. itemtype isn't filterable, so we read the
+    // item name off each non-mainline/non-tax/non-shipping line and match in JS (same pattern as
+    // getDiscounts). Normally a single qty-1 line; summed defensively.
+    function getReturnCoverageCents(soId) {
+        var cents = 0;
+        search.create({
+            type: search.Type.TRANSACTION,
+            filters: [
+                ['internalid', 'anyof', soId],
+                'AND',
+                ['mainline', 'is', 'F'],
+                'AND',
+                ['taxline', 'is', 'F'],
+                'AND',
+                ['shipping', 'is', 'F']
+            ],
+            columns: [
+                search.createColumn({ name: 'item' }),
+                search.createColumn({ name: 'amount' })
+            ]
+        }).run().each(function (result) {
+            var name = String(result.getText('item') || '').toLowerCase();
+            if (name === RETURN_COVERAGE_ITEM || name.indexOf(RETURN_COVERAGE_ITEM) !== -1) {
+                cents += toCents(Math.abs(parseFloat(result.getValue('amount')) || 0));
+            }
+            return true;
+        });
+        return cents;
     }
 
     // Fetch Item Fulfillments linked to the SO.
@@ -326,11 +369,33 @@ function getInputData() {
         var shippingTax     = 0;  // from custbody_fa_order_total JSON — applied to the shipping line's tax_lines
         var shippingTaxRate = 0;  // decimal fraction (e.g. 0.097411) for the shipping tax line's rate
         var itemTaxRate     = 0;  // decimal fraction (e.g. 0.097498) for the item tax lines' rate
+        var orderMetadata   = []; // Loop order metadata[] — { key, value }; currently the BC session_id
         try {
             var soRec = record.load({ type: record.Type.SALES_ORDER, id: soId, isDynamic: false });
 
             // Customer email lives on the SO 'email' body field — used for the inline customer upsert.
             orderEmail = soRec.getValue({ fieldId: 'email' }) || '';
+
+            // BigCommerce session id -> Loop order metadata (Loop uses it to link the order to the
+            // shopper's BC session). The BC channel order id lives on custbody_fa_channel_order; hand
+            // it to bc_order_metadata.getOrderSession(). Isolated so a BC failure or a missing
+            // session_id just omits the metadata entry — the order still syncs to Loop.
+            var bcOrderId = soRec.getValue({ fieldId: 'custbody_fa_channel_order' });
+            if (bcOrderId) {
+                try {
+                    var bcSession = bcMeta.getOrderSession(bcOrderId);
+                    if (bcSession && bcSession.session_id != null && String(bcSession.session_id) !== '') {
+                        orderMetadata.push({ key: 'session_id', value: String(bcSession.session_id) });
+                        log.audit({ title: 'Order BC session_id Found [' + soId + ']', details: 'SO: ' + soNumber + ' | BC order ' + bcOrderId + ' | session_id ' + bcSession.session_id });
+                    } else {
+                        log.audit({ title: 'Order BC session_id Absent [' + soId + ']', details: 'SO: ' + soNumber + ' | BC order ' + bcOrderId + ' — session metadata omitted' });
+                    }
+                } catch (bcErr) {
+                    log.error({ title: 'Order BC Metadata Failed [' + soId + ']', details: 'SO: ' + soNumber + ' | BC order ' + bcOrderId + ' | ' + bcErr.message });
+                }
+            } else {
+                log.audit({ title: 'Order BC Channel Order Id Missing [' + soId + ']', details: 'SO: ' + soNumber + ' | custbody_fa_channel_order empty — session metadata omitted' });
+            }
 
             // custbody_fa_order_total is a JSON string with the connector's amount breakdown,
             // e.g. {"orderTotal":85.67,"itemTotal":69.95,"taxTotal":7.61,"shippingCost":8.11,"shippingTax":0.79,"discountTotal":0.0}
@@ -402,6 +467,16 @@ function getInputData() {
             log.error({ title: 'getDiscounts Failed [' + soId + ']', details: discountErr.message });
         }
 
+        // Return Coverage charge (sent to Loop as a fee). Isolated so a lookup failure just omits
+        // the fee — the order still syncs (its amount is already inside total_price either way).
+        var returnCoverageCents = 0;
+        try { returnCoverageCents = getReturnCoverageCents(soId); } catch (coverageErr) {
+            log.error({ title: 'getReturnCoverageCents Failed [' + soId + ']', details: coverageErr.message });
+        }
+        if (returnCoverageCents > 0) {
+            log.audit({ title: 'Order Return Coverage [' + soId + ']', details: 'SO: ' + soNumber + ' | coverage fee ' + returnCoverageCents + ' cents' });
+        }
+
         // Skip if any line is missing its Loop product/variant ID
         var missingProduct = lines.filter(function (l) { return !l.loopProductId || !l.loopVariantId; });
         if (missingProduct.length) {
@@ -439,7 +514,11 @@ function getInputData() {
                 tax_lines:                  [],
                 refunds:                    [],
                 discounts:                  [],
-                duties:                     []
+                duties:                     [],
+                // Loop stores metadata on the LINE ITEM, not the order (there is no order-level
+                // metadata field — a top-level one is silently dropped). The BC session_id is
+                // order-scoped, so stamp it on every line; a fresh copy per line avoids aliasing.
+                metadata:                   orderMetadata.slice()
             };
         });
 
@@ -535,6 +614,14 @@ function getInputData() {
                 };
             }),
             line_items:      lineItems,
+            // Return Coverage — Loop "Order protection", return coverage only. Sent as a fee (it's a
+            // digital opt-in, not a returnable line item). Empty when the customer didn't add it; its
+            // amount is already included in total_price so the payload reconciles.
+            fees:            returnCoverageCents > 0 ? [{
+                                 name:                'Order protection',
+                                 amount:              { amount: returnCoverageCents, currency_code: 'USD' },
+                                 accepted_offer_mode: ['returnCoverage']
+                             }] : [],
             fulfillments:    [],
             refunds:         []
         };

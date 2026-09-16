@@ -9,7 +9,7 @@
  * Given a BigCommerce order id, fetches that order's metafields and returns:
  *
  *   {
- *     session_id: <the `value` of the metafield whose id is 270 (key "session_id")>,
+ *     session_id: <the `value` of the metafield with namespace "loop", key "session_id">,
  *     value:      "not-implemented in BC"   // placeholder — not yet sourced from BigCommerce
  *   }
  *
@@ -29,8 +29,11 @@ define(['N/https', 'N/log'], function (https, log) {
     // TODO: Move to API Secrets in production prior to implementation
     var BC_API_TOKEN  = '30qp5f1xx8pzkbwbd031wvrmtqjfrt';
 
-    // The BigCommerce order metafield id that carries the Loop session id.
-    var SESSION_METAFIELD_ID = 270;
+    // The BigCommerce order metafield that carries the Loop session id. Metafields are matched
+    // by (namespace, key) — the numeric `id` is a per-record auto-increment that differs on every
+    // order, so it can't be hardcoded. Loop writes this one as namespace "loop", key "session_id".
+    var SESSION_METAFIELD_NAMESPACE = 'loop';
+    var SESSION_METAFIELD_KEY       = 'session_id';
 
     // TODO: Placeholder for the returned `value` until it is actually sourced from BigCommerce.
     var VALUE_NOT_IMPLEMENTED = 'not-implemented in BC';
@@ -70,7 +73,7 @@ define(['N/https', 'N/log'], function (https, log) {
 
         var sessionId = null;
         for (var i = 0; i < data.length; i++) {
-            if (data[i] && Number(data[i].id) === SESSION_METAFIELD_ID) {
+            if (data[i] && data[i].key === SESSION_METAFIELD_KEY && data[i].namespace === SESSION_METAFIELD_NAMESPACE) {
                 sessionId = data[i].value;
                 break;
             }
@@ -79,7 +82,7 @@ define(['N/https', 'N/log'], function (https, log) {
         if (sessionId === null) {
             log.audit({
                 title:   'BigCommerce session_id not found',
-                details: 'order ' + bcOrderId + ' has no metafield id ' + SESSION_METAFIELD_ID
+                details: 'order ' + bcOrderId + ' has no "' + SESSION_METAFIELD_NAMESPACE + '"/"' + SESSION_METAFIELD_KEY + '" metafield'
             });
         }
 
