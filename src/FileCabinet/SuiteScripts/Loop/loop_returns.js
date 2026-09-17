@@ -42,6 +42,9 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
 
     var RETURN_ID_FIELD = 'custbody_loop_return_id';
 
+    var HANDLING_FEE_ITEM        = '1222'; // Adjustment Item
+    var HANDLING_FEE_DESCRIPTION = 'Return Handling Fee';
+
     // ---------------------------------------------------------------------------
     // DEBUG: verbose, step-by-step audit logging.
     // Flip to false for go-live (leaves the permanent "X Created" / error logs intact).
@@ -88,6 +91,11 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
         });
         if (sawLineFields) return round2(total);
         return round2(ret.return_total);
+    }
+
+    function handlingFeeAmount(ret) {
+        if (ret.handling_fee == null || ret.handling_fee === '') return 0;
+        return round2(String(ret.handling_fee).replace(/[^0-9.\-]/g, ''));
     }
 
     // Format a JS Date as 'YYYY-MM-DD HH:MM:SS' (UTC) for Loop's time-bracket query params.
@@ -345,7 +353,22 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
         // the apply sublist. Zeroing shipping lowered the credit total, so that stale apply
         // amount now exceeds the credit ("You cannot apply more than your total credit"). Re-point
         // the applied line(s) at the reduced item+tax total so the CM applies cleanly.
-        var creditTotal = itemPlusTaxRefund(ret);
+        var handlingFee = handlingFeeAmount(ret);
+        if (handlingFee > 0) {
+            var feeLine = cm.getLineCount({ sublistId: 'item' });
+            cm.insertLine({ sublistId: 'item', line: feeLine });
+            cm.setSublistValue({ sublistId: 'item', fieldId: 'item',        line: feeLine, value: HANDLING_FEE_ITEM });
+            cm.setSublistValue({ sublistId: 'item', fieldId: 'quantity',    line: feeLine, value: 1 });
+            cm.setSublistValue({ sublistId: 'item', fieldId: 'rate',        line: feeLine, value: -handlingFee });
+            cm.setSublistValue({ sublistId: 'item', fieldId: 'amount',      line: feeLine, value: -handlingFee });
+            cm.setSublistValue({ sublistId: 'item', fieldId: 'description', line: feeLine, value: HANDLING_FEE_DESCRIPTION });
+            dbg('createCreditMemo', 'handling_fee=' + ret.handling_fee + ' (Checkout+ not purchased) — added line ' + feeLine +
+                ': item ' + HANDLING_FEE_ITEM + ' @ ' + (-handlingFee) + ' "' + HANDLING_FEE_DESCRIPTION + '"');
+        } else {
+            dbg('createCreditMemo', 'handling_fee=' + ret.handling_fee + ' — no fee retained, no adjustment line added');
+        }
+
+        var creditTotal = round2(itemPlusTaxRefund(ret) - handlingFee);
         var applyCount  = cm.getLineCount({ sublistId: 'apply' });
         for (var a = 0; a < applyCount; a++) {
             var isApplied = cm.getSublistValue({ sublistId: 'apply', fieldId: 'apply', line: a });
