@@ -522,31 +522,47 @@ function getInputData() {
             };
         });
 
-        // Distribute the item-level tax (total tax minus the shipping tax already placed on the
-        // shipping line) across the line items, weighted by extended amount (quantity * rate).
-        // Work entirely in integer cents; any rounding remainder lands on the first line so the
-        // allocated total stays exact.
+        // Tax each Loop line item at the actual tax RATE (rate * extended amount), so each line
+        // carries exactly what NetSuite computes on that line. Distributing the tax by weight
+        // instead spread it over only the Loop line items, so a taxable charge that ISN'T a Loop
+        // line item — the Return Coverage charge ships as a fee, not a line_item — pushed its tax
+        // share onto the product lines and inflated them, which then wouldn't match the NetSuite
+        // invoice/credit memo and blocked returns from reconciling. The fee keeps its own tax
+        // (returnCoverageTaxCents) so line taxes + fee tax + shipping tax == total_taxes. Integer cents.
         var totalTaxCents    = toCents(values.taxtotal);
         var shippingTaxCents = shippingTax > 0 ? toCents(shippingTax) : 0;
         var itemTaxCents     = totalTaxCents - shippingTaxCents;
 
+        // The Return Coverage fee's own tax (rate * fee amount); the product lines carry the rest.
+        var returnCoverageTaxCents = (returnCoverageCents > 0 && itemTaxCents > 0)
+            ? Math.round(itemTaxRate * returnCoverageCents)
+            : 0;
+
         if (itemTaxCents > 0 && lineItems.length) {
-            var weights     = lines.map(function (l) { return (l.quantity || 0) * (l.rate || 0); });
-            var totalWeight = weights.reduce(function (s, w) { return s + w; }, 0);
-
-            var allocated = weights.map(function (w) {
-                return totalWeight > 0 ? Math.round(itemTaxCents * w / totalWeight) : 0;
-            });
-
-            // Push any rounding drift (extra/short pennies) onto the first line.
-            var allocatedSum = allocated.reduce(function (s, a) { return s + a; }, 0);
-            allocated[0] += itemTaxCents - allocatedSum;
+            var lineTaxBudget = itemTaxCents - returnCoverageTaxCents; // item tax owed by the product lines
+            var sumLineTax    = 0;
 
             lineItems.forEach(function (li, i) {
-                if (allocated[i] > 0) {
-                    li.tax_lines = [{ title: 'Tax', price: { amount: allocated[i], currency_code: 'USD' }, rate: itemTaxRate }];
+                if (li.taxable === false) return;                        // never tax a non-taxable line
+                var extCents = toCents((lines[i].quantity || 0) * (lines[i].rate || 0));
+                var lineTax  = Math.round(itemTaxRate * extCents);
+                if (lineTax > 0) {
+                    li.tax_lines = [{ title: 'Tax', price: { amount: lineTax, currency_code: 'USD' }, rate: itemTaxRate }];
+                    sumLineTax += lineTax;
                 }
             });
+
+            // Fold any sub-cent rounding drift onto the first taxed line so the product lines sum
+            // to lineTaxBudget exactly (keeps line taxes + fee tax + shipping tax == total_taxes).
+            var drift = lineTaxBudget - sumLineTax;
+            if (drift !== 0) {
+                for (var di = 0; di < lineItems.length; di++) {
+                    if (lineItems[di].tax_lines && lineItems[di].tax_lines.length) {
+                        lineItems[di].tax_lines[0].price.amount += drift;
+                        break;
+                    }
+                }
+            }
         }
 
         var payload = {
@@ -615,11 +631,13 @@ function getInputData() {
             }),
             line_items:      lineItems,
             // Return Coverage — Loop "Order protection", return coverage only. Sent as a fee (it's a
-            // digital opt-in, not a returnable line item). Empty when the customer didn't add it; its
-            // amount is already included in total_price so the payload reconciles.
+            // digital opt-in, not a returnable line item). Empty when the customer didn't add it. Its
+            // amount is already in total_price, and its own tax rides on the fee's tax field
+            // (returnCoverageTaxCents) so line taxes + fee tax + shipping tax reconcile to total_taxes.
             fees:            returnCoverageCents > 0 ? [{
                                  name:                'Order protection',
-                                 amount:              { amount: returnCoverageCents, currency_code: 'USD' },
+                                 amount:              { amount: returnCoverageCents,    currency_code: 'USD' },
+                                 tax:                 { amount: returnCoverageTaxCents, currency_code: 'USD' },
                                  accepted_offer_mode: ['returnCoverage']
                              }] : [],
             fulfillments:    [],
@@ -638,6 +656,11 @@ function getInputData() {
             });
             payload.line_items.forEach(function (li) {
                 (li.tax_lines || []).forEach(function (t) { sum += t.price.amount; });
+            });
+            // Fee tax (Return Coverage) is part of the order's tax now, so count it — otherwise
+            // the reconcile would think the lines are short and re-inflate them.
+            (payload.fees || []).forEach(function (f) {
+                if (f.tax && f.tax.amount) sum += f.tax.amount;
             });
 
             var diff = totalTaxCents - sum;

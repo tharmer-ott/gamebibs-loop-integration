@@ -208,9 +208,31 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
     }
 
     // Set of NetSuite item ids being returned, resolved from the return's line items.
+    //
+    // Only lines STILL part of the return count. When a line is removed from a return via Loop's
+    // remove-line endpoint, it lingers in ret.line_items with its amounts zeroed and returned_at
+    // nulled, but it drops out of ret.presentment.line_items — which reflects the return's CURRENT
+    // composition. So when presentment is available we intersect line_items against it (matched by
+    // line_item_id) to drop removed lines; otherwise we fall back to all line_items (unchanged
+    // behavior). This keeps a removed line from being credited and restocked on the Credit Memo.
     function returnedItemIdSet(ret) {
         var set = {};
+
+        // Authoritative active-line ids from presentment. presentment stores line_item_id as a
+        // string and line_items as a number, so compare stringified. An empty/unusable presentment
+        // falls back to null (= keep all lines) so we never accidentally credit the whole invoice.
+        var activeIds = null;
+        var pLines = ret.presentment && ret.presentment.line_items;
+        if (Array.isArray(pLines) && pLines.length) {
+            activeIds = {};
+            pLines.forEach(function (pli) {
+                if (pli && pli.line_item_id != null) activeIds[String(pli.line_item_id)] = true;
+            });
+            if (!Object.keys(activeIds).length) activeIds = null;
+        }
+
         (ret.line_items || []).forEach(function (li) {
+            if (activeIds && !activeIds[String(li.line_item_id)]) return; // removed from the return
             var itemId = li.variant_id ? mapVariantToItem(li.variant_id) : null;
             if (itemId) set[String(itemId)] = true;
         });
@@ -611,17 +633,27 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
 
     function getInputData() {
         var script   = runtime.getCurrentScript();
-        var lookback = parseInt(script.getParameter({ name: 'custscript_loop_returns_lookback' }), 10) || 1440; // minutes, default 1 day
+        // Lookback window in HOURS (default 7). The arithmetic below is hours -> ms
+        // (lookback * 60 min * 60 sec * 1000 ms); the deployment param
+        // custscript_loop_returns_lookback overrides the default when it's set.
+        var lookback = parseInt(script.getParameter({ name: 'custscript_loop_returns_lookback' }), 10) || 7; // hours, default 7
         var to       = new Date();
         var from     = new Date(to.getTime() - lookback * 60 * 60 * 1000);
 
+        // TEST OVERRIDE: fixed backfill window (2026-09-01 -> 2026-10-01, UTC). Delete this block
+        // to restore the rolling lookback window above. Month is 0-indexed (8 = Sep, 9 = Oct).
+        from = new Date(Date.UTC(2026, 8, 1, 0, 0, 0));  // 2026-09-01 00:00:00
+        to   = new Date(Date.UTC(2026, 9, 1, 0, 0, 0));  // 2026-10-01 00:00:00
+
         // Loop "Detailed Returns List" endpoint — returns a bare array of full return objects
-        // within the [from, to] window. Loop requires the literal 'YYYY-MM-DD HH:MM:SS' format
-        // with real spaces/colons (NOT percent-encoded).
+        // within the [from, to] window, filtered server-side to closed returns (state=closed).
+        // Loop requires the literal 'YYYY-MM-DD HH:MM:SS' format with real spaces/colons
+        // (NOT percent-encoded).
         // https://docs.loopreturns.com/api-reference/latest/return-data/detailed-returns-list
         var url = LOOP_API_URL + '/warehouse/return/list' +
-                  '?from=' + toLoopDateTime(from) +
-                  '&to='   + toLoopDateTime(to);
+                  '?from='  + toLoopDateTime(from) +
+                  '&to='    + toLoopDateTime(to) +
+                  '&state=closed';
 
         log.audit({ title: 'Loop Returns Fetch', details: 'Window: ' + toLoopDateTime(from) + ' -> ' + toLoopDateTime(to) });
 
@@ -645,12 +677,6 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
                      ' | count: ' + returns.length +
                      ' | ids: ' + returns.map(function (r) { return r.id; }).join(',')
         });
-
-        // TEMP (testing): process only returns against this one order. Remove to handle the
-        // full window. Compare as strings — Loop may quote or unquote these values.
-        var ONLY_ORDER_NAME = 'SO31057';
-        returns = returns.filter(function (r) { return String(r.order_name) == ONLY_ORDER_NAME; });
-        dbg('getInputData', 'After single-order filter (' + ONLY_ORDER_NAME + '): ' + returns.length + ' return(s)');
 
         return returns;
     }
