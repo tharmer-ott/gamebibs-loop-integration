@@ -14,8 +14,11 @@ define(['N/search', 'N/record', 'N/https', 'N/log', 'N/runtime', './bc_order_met
         : '929970130160201728';  // production Loop location
 
     // TEST MODE: restrict getInputData to specific orders (by tranid). /orders is a PUT (upsert),
-    // so re-running these updates the existing Loop orders. Set to null/[] for the full set.
-    var TEST_ORDER_TRANIDS = ['SO39275', 'SO39620'];
+    // so re-running these updates the existing Loop orders. When set, getInputData scopes to ONLY
+    // these tranids and BYPASSES the status/entity/go-live-date business filters, so a specific
+    // test order — even an older pre-cutoff one, or one already synced — can be force-(re)synced.
+    // Set to null/[] for the normal business-filtered set.
+    var TEST_ORDER_TRANIDS = ['SO30869'];
 
     // Return Coverage — a digital "product" the customer opts into at checkout (Loop's
     // "Order protection", return coverage only; shipping is charged separately on the physical
@@ -61,35 +64,49 @@ define(['N/search', 'N/record', 'N/https', 'N/log', 'N/runtime', './bc_order_met
     }
 
 function getInputData() {
-        // One row per Sales Order not yet pushed to Loop
-        var filters = [
-            ['type', 'anyof', 'SalesOrd'],
-            'AND',
-            ['mainline', 'is', 'T'],
-            'AND',
-            [
-                ['status', 'anyof', ['SalesOrd:D', 'SalesOrd:E']],  // Partially Fulfilled / Pending Billing+Partial — always re-sync
-                'OR',
-                [
-                    ['status', 'anyof', ['SalesOrd:F', 'SalesOrd:G']],             // Pending Billing (fully fulfilled) — first sync only
-                    'AND',
-                    ['custbody_loop_order_id', 'isempty', '']
-                ]
-            ],
-            'AND',
-            ['entity', 'anyof', ['1020']],  // BigCommerce bucket customer 491 only (Amazon is not synced to Loop)
-            'AND',
-            ['trandate', 'onorafter', '7/31/2026']  // Go-live cutoff: never sync orders dated before this
-        ];
+        var filters;
 
-        // TEST MODE: narrow to the specific orders in TEST_ORDER_TRANIDS (tranid OR-group).
         if (TEST_ORDER_TRANIDS && TEST_ORDER_TRANIDS.length) {
+            // TEST MODE: scope to exactly these tranids and BYPASS the status/entity/go-live-date
+            // business filters, so a specific test order — even an older pre-cutoff one, or one
+            // already synced (custbody_loop_order_id set) — can be force-(re)synced for testing.
             var tranidGroup = [];
             TEST_ORDER_TRANIDS.forEach(function (t, i) {
                 if (i) tranidGroup.push('OR');
                 tranidGroup.push(['tranid', 'is', t]);
             });
-            filters.push('AND', tranidGroup);
+            filters = [
+                ['type', 'anyof', 'SalesOrd'],
+                'AND',
+                ['mainline', 'is', 'T'],
+                'AND',
+                tranidGroup
+            ];
+        } else {
+            // One row per Sales Order not yet pushed to Loop
+            filters = [
+                ['type', 'anyof', 'SalesOrd'],
+                'AND',
+                ['mainline', 'is', 'T'],
+                'AND',
+                [
+                    ['status', 'anyof', ['SalesOrd:D', 'SalesOrd:E']],  // Partially Fulfilled / Pending Billing+Partial — always re-sync
+                    'OR',
+                    [
+                        ['status', 'anyof', ['SalesOrd:F', 'SalesOrd:G']],             // Pending Billing (fully fulfilled) — first sync only
+                        'AND',
+                        ['custbody_loop_order_id', 'isempty', '']
+                    ]
+                ],
+                'AND',
+                ['entity', 'anyof', ['1020']]  // BigCommerce bucket customer 491 only (Amazon is not synced to Loop)
+            ];
+
+            // Go-live date cutoff is a PRODUCTION guard (never push pre-go-live orders to the live
+            // Loop store). Sandbox ignores it so older test orders can be synced.
+            if (runtime.envType !== runtime.EnvType.SANDBOX) {
+                filters.push('AND', ['trandate', 'onorafter', '7/31/2026']);  // Go-live cutoff (prod only)
+            }
         }
 
         return search.create({

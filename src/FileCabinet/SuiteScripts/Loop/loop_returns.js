@@ -375,22 +375,62 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
         // the apply sublist. Zeroing shipping lowered the credit total, so that stale apply
         // amount now exceeds the credit ("You cannot apply more than your total credit"). Re-point
         // the applied line(s) at the reduced item+tax total so the CM applies cleanly.
+        // Rebuild the returned line's credit to match what Loop ACTUALLY refunded, to the penny.
+        // When the customer didn't buy Checkout+, Loop retains a handling fee and spreads it across
+        // BOTH item and tax — its per-line refund_item / refund_tax are already net of the fee. The
+        // invoice->CM transform gave us GROSS amounts, so convert them to Loop's net:
+        //   - reduce the item side to sum(refund_item) with a Return Handling Fee adjustment line
+        //   - force the CM tax to sum(refund_tax) via taxamountoverride (mirrors how the SO carries
+        //     a header tax override); NetSuite would otherwise recompute tax on the gross line and
+        //     not match Loop's fee-adjusted tax.
+        var netItem = 0, netTax = 0, sawRefundFields = false;
+        (ret.line_items || []).forEach(function (li) {
+            if (li.refund_item != null || li.refund_tax != null) sawRefundFields = true;
+            netItem += parseFloat(li.refund_item) || 0;
+            netTax  += parseFloat(li.refund_tax)  || 0;
+        });
+        netItem = round2(netItem);
+        netTax  = round2(netTax);
+
         var handlingFee = handlingFeeAmount(ret);
-        if (handlingFee > 0) {
-            var feeLine = cm.getLineCount({ sublistId: 'item' });
-            cm.insertLine({ sublistId: 'item', line: feeLine });
-            cm.setSublistValue({ sublistId: 'item', fieldId: 'item',        line: feeLine, value: HANDLING_FEE_ITEM });
-            cm.setSublistValue({ sublistId: 'item', fieldId: 'quantity',    line: feeLine, value: 1 });
-            cm.setSublistValue({ sublistId: 'item', fieldId: 'rate',        line: feeLine, value: -handlingFee });
-            cm.setSublistValue({ sublistId: 'item', fieldId: 'amount',      line: feeLine, value: -handlingFee });
-            cm.setSublistValue({ sublistId: 'item', fieldId: 'description', line: feeLine, value: HANDLING_FEE_DESCRIPTION });
-            dbg('createCreditMemo', 'handling_fee=' + ret.handling_fee + ' (Checkout+ not purchased) — added line ' + feeLine +
-                ': item ' + HANDLING_FEE_ITEM + ' @ ' + (-handlingFee) + ' "' + HANDLING_FEE_DESCRIPTION + '"');
+        if (handlingFee > 0 && sawRefundFields) {
+            // Gross item subtotal currently on the CM (returned line(s); shipping already zeroed).
+            var grossItem = 0;
+            var itemCount = cm.getLineCount({ sublistId: 'item' });
+            for (var gi = 0; gi < itemCount; gi++) {
+                grossItem += parseFloat(cm.getSublistValue({ sublistId: 'item', fieldId: 'amount', line: gi })) || 0;
+            }
+            grossItem = round2(grossItem);
+
+            var feeItemReduction = round2(grossItem - netItem); // item portion of the handling fee
+            if (feeItemReduction > 0) {
+                var feeLine = cm.getLineCount({ sublistId: 'item' });
+                cm.insertLine({ sublistId: 'item', line: feeLine });
+                cm.setSublistValue({ sublistId: 'item', fieldId: 'item',        line: feeLine, value: HANDLING_FEE_ITEM });
+                cm.setSublistValue({ sublistId: 'item', fieldId: 'quantity',    line: feeLine, value: 1 });
+                cm.setSublistValue({ sublistId: 'item', fieldId: 'rate',        line: feeLine, value: -feeItemReduction });
+                cm.setSublistValue({ sublistId: 'item', fieldId: 'amount',      line: feeLine, value: -feeItemReduction });
+                cm.setSublistValue({ sublistId: 'item', fieldId: 'description', line: feeLine, value: HANDLING_FEE_DESCRIPTION });
+            }
+            dbg('createCreditMemo', 'handling_fee=' + ret.handling_fee + ' (Checkout+ not purchased) — item ' +
+                grossItem + ' -> ' + netItem + ' (fee item portion ' + feeItemReduction +
+                ', tax portion ' + round2(handlingFee - feeItemReduction) + '); overriding CM tax -> ' + netTax);
+
+            // Force total CM tax to Loop's net refund_tax.
+            try {
+                cm.setValue({ fieldId: 'taxamountoverride', value: netTax });
+            } catch (taxErr) {
+                log.error({ title: 'CM Tax Override Failed [Return ' + ret.id + ']',
+                    details: 'taxamountoverride not settable (' + taxErr.message + ') — CM tax will be NetSuite-computed, not Loop ' + netTax });
+            }
         } else {
-            dbg('createCreditMemo', 'handling_fee=' + ret.handling_fee + ' — no fee retained, no adjustment line added');
+            dbg('createCreditMemo', 'handling_fee=' + ret.handling_fee +
+                (handlingFee > 0 ? ' — no per-line refund fields; CM tax left as computed' : ' — no fee retained'));
         }
 
-        var creditTotal = round2(itemPlusTaxRefund(ret) - handlingFee);
+        // itemPlusTaxRefund sums Loop's net refund_item + refund_tax, which now equals the CM total
+        // (net item + overridden net tax). Apply the full amount so the credit applies cleanly.
+        var creditTotal = itemPlusTaxRefund(ret);
         var applyCount  = cm.getLineCount({ sublistId: 'apply' });
         for (var a = 0; a < applyCount; a++) {
             var isApplied = cm.getSublistValue({ sublistId: 'apply', fieldId: 'apply', line: a });
