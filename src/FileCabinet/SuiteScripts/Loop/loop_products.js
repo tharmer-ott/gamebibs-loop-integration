@@ -6,7 +6,12 @@
  * of the group as a product variant.
  *
  * - Parent Item -> Loop Product            (PUT /products, upsert by external_id)
- * - Member item -> Loop Product Variant    (POST /products/{id}/product-variants)
+ * - Member item -> Loop Product Variant    (POST /products/{id}/product-variants to create;
+ *                                           PUT /products/{id}/product-variants/{variantId}
+ *                                           to replace one that exists, on a full resync)
+ *
+ * Each item's image comes from custitem_bc_image_url (filled from BigCommerce by
+ * bc_product_images.js) and is sent as the product's / variant's only image.
  *
  * A "group" here is just a regular InvtPart Inventory Item with no parent of
  * its own (parent = @NONE@) -- NOT a NetSuite Group/itemgroup record, and NOT
@@ -21,6 +26,12 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
     // List one or more parent Item (InvtPart) internal IDs; set to null or []
     // to process all groups (full catalog).
     var TEST_GROUP_IDS = null;
+
+    // FULL RESYNC: re-send every active group and variant, not just ones missing from Loop
+    // (e.g. to push image URLs added after the first sync). Variants already in Loop are
+    // replaced by their Loop ID with the full payload built from NetSuite -- Loop's variant
+    // update blanks any field left out, so it's always sent whole. Set back to false after.
+    var FULL_RESYNC = false;
 
     function buildHeaders() {
         return {
@@ -59,7 +70,8 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
                 search.createColumn({ name: 'baseprice' }),
                 search.createColumn({ name: 'weightunit' }),
                 search.createColumn({ name: 'weight' }),
-                search.createColumn({ name: 'custitem_loop_product_variant_id' })
+                search.createColumn({ name: 'custitem_loop_product_variant_id' }),
+                search.createColumn({ name: 'custitem_bc_image_url' })
             ]
         }).run().each(function (result) {
             rows.push({
@@ -71,7 +83,8 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
                 price:        parseFloat(result.getValue('baseprice')) || 0,
                 weight:       parseFloat(result.getValue('weight')) || 0,
                 weightUnit:   result.getValue('weightunit'),
-                loopVariantId: result.getValue('custitem_loop_product_variant_id')
+                loopVariantId: result.getValue('custitem_loop_product_variant_id'),
+                imageUrl:     result.getValue('custitem_bc_image_url')
             });
             return true;
         });
@@ -88,20 +101,25 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
 
         var groupIds = {};
 
-        // Groups never synced to Loop. A "group" here is just a regular InvtPart
-        // Inventory Item with no parent of its own -- not a NetSuite Group/itemgroup
-        // record. Its children are InvtPart items whose 'parent' points back to it.
+        // Groups never synced to Loop (every active group on a full resync). A "group" here
+        // is just a regular InvtPart Inventory Item with no parent of its own -- not a
+        // NetSuite Group/itemgroup record. Its children are InvtPart items whose 'parent'
+        // points back to it.
+        var groupFilters = [
+            ['isinactive', 'is', 'F'],
+            'AND',
+            ['type', 'anyof', 'InvtPart'],
+            'AND',
+            ['parent', 'anyof', '@NONE@']
+        ];
+        if (FULL_RESYNC) {
+            log.audit({ title: 'FULL RESYNC', details: 'Re-sending every active group and variant' });
+        } else {
+            groupFilters.push('AND', ['custitem_loop_product_id', 'isempty', '']);
+        }
         search.create({
             type: search.Type.INVENTORY_ITEM,
-            filters: [
-                ['isinactive', 'is', 'F'],
-                'AND',
-                ['type', 'anyof', 'InvtPart'],
-                'AND',
-                ['parent', 'anyof', '@NONE@'],
-                'AND',
-                ['custitem_loop_product_id', 'isempty', '']
-            ],
+            filters: groupFilters,
             columns: ['internalid']
         }).run().each(function (result) {
             groupIds[result.id] = true;
@@ -154,7 +172,8 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
                 search.createColumn({ name: 'baseprice' }),
                 search.createColumn({ name: 'upccode' }),
                 search.createColumn({ name: 'weightunit' }),
-                search.createColumn({ name: 'weight' })
+                search.createColumn({ name: 'weight' }),
+                search.createColumn({ name: 'custitem_bc_image_url' })
             ]
         }).run().each(function (result) {
             details[result.id] = {
@@ -165,13 +184,14 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
                 price:       parseFloat(result.getValue('baseprice')) || 0,
                 barcode:     result.getValue('upccode'),
                 weight:      parseFloat(result.getValue('weight')) || 0,
-                weightUnit:  result.getValue('weightunit')
+                weightUnit:  result.getValue('weightunit'),
+                imageUrl:    result.getValue('custitem_bc_image_url')
             };
             return true;
         });
 
         return ids.map(function (id) {
-            return details[id] || { id: id, name: null, sku: null, description: null, price: 0, barcode: null, weight: 0, weightUnit: null };
+            return details[id] || { id: id, name: null, sku: null, description: null, price: 0, barcode: null, weight: 0, weightUnit: null, imageUrl: null };
         });
     }
 
@@ -228,6 +248,9 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
         if (sizeValues.length) {
             productData.options = [{ name: 'Size', position: 1, values: sizeValues }];
         }
+        if (group.imageUrl) {
+            productData.images = [group.imageUrl];
+        }
 
         var payload = JSON.stringify(productData);
 
@@ -283,7 +306,9 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
         }
     }
 
-    function createVariant(loopProductId, child) {
+    // Creates the variant in Loop, or -- when it already has a Loop ID (full resync) -- replaces
+    // it with the same payload.
+    function syncVariant(loopProductId, child) {
         var sku     = child.sku;
         var name    = child.name || sku;
         var barcode = child.barcode;
@@ -317,10 +342,33 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
         if (child.name) {
             variantData.options = [{ position: 1, value: child.name }];
         }
+        if (child.imageUrl) {
+            variantData.images = [child.imageUrl];
+        }
 
         var payload = JSON.stringify(variantData);
 
         log.audit({ title: 'Variant Payload [' + childId + ']', details: payload });
+
+        if (child.loopVariantId) {
+            var putResponse = https.put({
+                url:     LOOP_API_URL + '/products/' + loopProductId + '/product-variants/' + child.loopVariantId,
+                headers: buildHeaders(),
+                body:    payload
+            });
+            if (putResponse.code === 200) {
+                log.audit({
+                    title:   'Variant Updated [' + childId + ']',
+                    details: 'SKU: ' + sku + ' | Loop Variant ID: ' + child.loopVariantId
+                });
+                return true;
+            }
+            log.error({
+                title:   'Loop Variant Update Error [' + childId + ']',
+                details: 'HTTP ' + putResponse.code + ' | ' + putResponse.body
+            });
+            return false;
+        }
 
         var response = https.post({
             url:     LOOP_API_URL + '/products/' + loopProductId + '/product-variants',
@@ -372,22 +420,23 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
         var variantError   = 0;
 
         // Children were already fetched once in map() -- no need to search again here.
-        // Only create variants for children that don't already have one, since the
-        // POST endpoint isn't an upsert and would error on a duplicate external_id.
+        // Normally only children without a Loop variant are sent (POST isn't an upsert and
+        // would error on a duplicate external_id); a full resync also replaces existing ones
+        // by their Loop ID.
         (result.children || []).forEach(function (child) {
-            if (child.loopVariantId) return;
+            if (child.loopVariantId && !FULL_RESYNC) return;
             try {
-                if (createVariant(loopProductId, child)) variantSuccess++;
+                if (syncVariant(loopProductId, child)) variantSuccess++;
                 else variantError++;
             } catch (e) {
-                log.error({ title: 'Variant Create Exception [' + child.internalId + ']', details: e.message });
+                log.error({ title: 'Variant Sync Exception [' + child.internalId + ']', details: e.message });
                 variantError++;
             }
         });
 
         log.audit({
             title:   'Group Written Back [' + groupId + ']',
-            details: 'Loop Product ID: ' + loopProductId + ' | Variants created: ' + variantSuccess + ' | Variant errors: ' + variantError
+            details: 'Loop Product ID: ' + loopProductId + ' | Variants synced: ' + variantSuccess + ' | Variant errors: ' + variantError
         });
         context.write({
             key:   groupId,
@@ -416,7 +465,7 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
         log.audit({
             title:   'Loop Products Integration Complete',
             details: 'Groups synced: ' + groupSuccess + ' | Group errors: ' + groupError +
-                      ' | Variants created: ' + variantSuccess + ' | Variant errors: ' + variantError
+                      ' | Variants synced: ' + variantSuccess + ' | Variant errors: ' + variantError
         });
 
         if (summary.mapSummary.error) {
