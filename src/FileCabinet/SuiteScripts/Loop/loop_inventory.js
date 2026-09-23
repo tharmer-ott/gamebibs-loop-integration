@@ -12,6 +12,10 @@ define(['N/search', 'N/https', 'N/log', 'N/runtime'], function (search, https, l
         ? '894555345163870208'   // sandbox Loop location
         : '929970130160201728';  // production Loop location
 
+    // NetSuite internal ID of the PFC Fulfillment location — the only location whose stock
+    // is sold through Loop. Other locations (e.g. "Sample sold onsite") are excluded.
+    var NS_FULFILLMENT_LOCATION_ID = '1';
+
     function buildHeaders() {
         return {
             'Content-Type':    'application/json',
@@ -20,11 +24,10 @@ define(['N/search', 'N/https', 'N/log', 'N/runtime'], function (search, https, l
     }
 
     function getInputData() {
-        // One row per synced variant. GameBibs runs a single inventory location, so the
-        // aggregate available count equals that one location's available — push it straight
-        // to the single Loop location, no per-location breakdown. The `location` column is
-        // intentionally omitted: NetSuite only populates it when there are multiple locations
-        // to break out, so with one location it comes back blank for every row.
+        // One row per synced variant. locationquantityavailable expands into one row per
+        // item per location, so the inventorylocation filter pins it to PFC Fulfillment only.
+        // Without it, every other location's row also PUTs to the same Loop variant/location
+        // and whichever map call finishes last wins (e.g. a 0 from "Sample sold onsite").
         return search.create({
             type: search.Type.INVENTORY_ITEM,
             filters: [
@@ -35,6 +38,8 @@ define(['N/search', 'N/https', 'N/log', 'N/runtime'], function (search, https, l
                 ['parent', 'noneof', '@NONE@'],
                 'AND',
                 ['custitem_loop_product_variant_id', 'isnotempty', ''],
+                'AND',
+                ['inventorylocation', 'anyof', NS_FULFILLMENT_LOCATION_ID],
                 'AND',
                 ['locationquantityavailable', 'greaterthanorequalto', '0']
             ],
