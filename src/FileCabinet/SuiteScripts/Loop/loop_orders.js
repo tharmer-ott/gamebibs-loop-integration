@@ -18,7 +18,7 @@ define(['N/search', 'N/record', 'N/https', 'N/log', 'N/runtime', './bc_order_met
     // these tranids and BYPASSES the status/entity/go-live-date business filters, so a specific
     // test order — even an older pre-cutoff one, or one already synced — can be force-(re)synced.
     // Set to null/[] for the normal business-filtered set.
-    var TEST_ORDER_TRANIDS = ['SO30869'];
+    var TEST_ORDER_TRANIDS = null;
 
     // Return Coverage — a digital "product" the customer opts into at checkout (Loop's
     // "Order protection", return coverage only; shipping is charged separately on the physical
@@ -89,15 +89,9 @@ function getInputData() {
                 'AND',
                 ['mainline', 'is', 'T'],
                 'AND',
-                [
-                    ['status', 'anyof', ['SalesOrd:D', 'SalesOrd:E']],  // Partially Fulfilled / Pending Billing+Partial — always re-sync
-                    'OR',
-                    [
-                        ['status', 'anyof', ['SalesOrd:F', 'SalesOrd:G']],             // Pending Billing (fully fulfilled) — first sync only
-                        'AND',
-                        ['custbody_loop_order_id', 'isempty', '']
-                    ]
-                ],
+                ['status', 'anyof', ['SalesOrd:F', 'SalesOrd:G']],  // Fully fulfilled only — partially fulfilled orders wait until complete
+                'AND',
+                ['custbody_loop_order_id', 'isempty', ''],          // First sync only
                 'AND',
                 ['entity', 'anyof', ['1020']]  // BigCommerce bucket customer 491 only (Amazon is not synced to Loop)
             ];

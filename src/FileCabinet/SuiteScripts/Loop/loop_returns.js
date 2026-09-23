@@ -50,7 +50,7 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
     // Flip to false for go-live (leaves the permanent "X Created" / error logs intact).
     // Can later be promoted to a deployment param if you want to toggle without redeploy.
     // ---------------------------------------------------------------------------
-    var DEBUG = true;
+    var DEBUG = false;
 
     function dbg(title, details) {
         if (DEBUG) log.audit({ title: '[DBG] ' + title, details: details });
@@ -306,7 +306,8 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
                 });
             }
         } else {
-            dbg('createCustomerRefund', 'Could not determine item+tax amount from return — refunding full deposit (unchanged behavior)');
+            // Never fall back to refunding the full deposit (that would include shipping).
+            throw new Error('Refund amount is ' + target + ' for return ' + ret.id + ' — left for manual review');
         }
 
         // Sandbox can't process the real Braintree refund (no live charge behind the deposit),
@@ -636,6 +637,16 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
 
     function processRefund(ret, soId) {
         dbg('processRefund', 'START return ' + ret.id + ' | SO ' + soId);
+
+        // Check the refund amount before Step 1 touches anything. A net refund of $0 or less
+        // (missing amount fields, or a handling fee that consumes the whole refund) is left for
+        // manual review rather than guessed at.
+        var refundTarget = itemPlusTaxRefund(ret);
+        if (refundTarget <= 0) {
+            throw new Error('Refund amount is ' + refundTarget + ' (item + tax, net of handling fee ' +
+                handlingFeeAmount(ret) + ') for return ' + ret.id + ' on SO ' + soId + ' — left for manual review');
+        }
+
         dbg('processRefund', 'Step 1/4 — delete deposit application(s)');
         deleteDepositApplications(soId);
         dbg('processRefund', 'Step 2/4 — create Customer Refund (item + tax only)');
@@ -680,19 +691,17 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
         var to       = new Date();
         var from     = new Date(to.getTime() - lookback * 60 * 60 * 1000);
 
-        // TEST OVERRIDE: fixed backfill window (2026-09-01 -> 2026-10-01, UTC). Delete this block
-        // to restore the rolling lookback window above. Month is 0-indexed (8 = Sep, 9 = Oct).
-        from = new Date(Date.UTC(2026, 8, 1, 0, 0, 0));  // 2026-09-01 00:00:00
-        to   = new Date(Date.UTC(2026, 9, 1, 0, 0, 0));  // 2026-10-01 00:00:00
-
         // Loop "Detailed Returns List" endpoint — returns a bare array of full return objects
         // within the [from, to] window, filtered server-side to closed returns (state=closed).
+        // filter=updated_at applies the window to the return's last update rather than its
+        // creation (Loop's default), so a return is picked up on the run after it closes.
         // Loop requires the literal 'YYYY-MM-DD HH:MM:SS' format with real spaces/colons
         // (NOT percent-encoded).
         // https://docs.loopreturns.com/api-reference/latest/return-data/detailed-returns-list
         var url = LOOP_API_URL + '/warehouse/return/list' +
                   '?from='  + toLoopDateTime(from) +
                   '&to='    + toLoopDateTime(to) +
+                  '&filter=updated_at' +
                   '&state=closed';
 
         log.audit({ title: 'Loop Returns Fetch', details: 'Window: ' + toLoopDateTime(from) + ' -> ' + toLoopDateTime(to) });
