@@ -20,6 +20,12 @@ define(['N/search', 'N/record', 'N/https', 'N/log', 'N/runtime', './bc_order_met
     // Set to null/[] for the normal business-filtered set.
     var TEST_ORDER_TRANIDS = null;
 
+    // FULL RESYNC: re-send every order that matches the business filters, including ones already
+    // in Loop (custbody_loop_order_id set) — e.g. to push the BC order # secondary_identifier
+    // onto orders synced before that change. /orders upserts by external_id, so existing Loop orders
+    // are updated in place. Set back to false after.
+    var FULL_RESYNC = false;
+
     // Return Coverage — a digital "product" the customer opts into at checkout (Loop's
     // "Order protection", return coverage only; shipping is charged separately on the physical
     // items). On the SO it's a non-inventory charge line named this; because it has no Loop
@@ -91,10 +97,14 @@ function getInputData() {
                 'AND',
                 ['status', 'anyof', ['SalesOrd:F', 'SalesOrd:G']],  // Fully fulfilled only — partially fulfilled orders wait until complete
                 'AND',
-                ['custbody_loop_order_id', 'isempty', ''],          // First sync only
-                'AND',
                 ['entity', 'anyof', ['1020']]  // BigCommerce bucket customer 491 only (Amazon is not synced to Loop)
             ];
+
+            if (FULL_RESYNC) {
+                log.audit({ title: 'FULL RESYNC', details: 'Re-sending every order, including ones already in Loop' });
+            } else {
+                filters.push('AND', ['custbody_loop_order_id', 'isempty', '']);  // First sync only
+            }
 
             // Go-live date cutoff is a PRODUCTION guard (never push pre-go-live orders to the live
             // Loop store). Sandbox ignores it so older test orders can be synced.
@@ -102,6 +112,8 @@ function getInputData() {
                 filters.push('AND', ['trandate', 'onorafter', '7/31/2026']);  // Go-live cutoff (prod only)
             }
         }
+
+        log.audit({ title: 'Order Search Filters', details: JSON.stringify(filters) });
 
         return search.create({
             type: search.Type.TRANSACTION,
@@ -578,7 +590,11 @@ function getInputData() {
 
         var payload = {
             external_id:                 String(soId),
+            // name = NS SO # (PFC matches returns on order_name in Loop's ASN report);
+            // secondary_identifier = BC order # (what the customer sees on their confirmation email).
+            // Loop's portal lets customers look up by either. Null when the BC channel order is blank.
             name:                        soNumber,
+            secondary_identifier:        bcOrderId ? String(bcOrderId) : null,
             status:                      mapStatus(
                                              Array.isArray(values.statusref) ? values.statusref[0].value :
                                              (values.statusref && values.statusref.value) ? values.statusref.value :
