@@ -252,6 +252,11 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
             productData.images = [group.imageUrl];
         }
 
+        var tag = sku ? String(sku).trim().substring(0, 3) : '';
+        if (tag) {
+            productData.tags = [tag];
+        }
+
         var payload = JSON.stringify(productData);
 
         log.audit({ title: 'Product Payload [' + groupId + ']', details: payload });
