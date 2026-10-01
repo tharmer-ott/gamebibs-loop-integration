@@ -85,5 +85,67 @@
         </single>
       </recurrence>
     </scriptdeployment>
+    <scriptdeployment scriptid="customdeploy_loop_mr_orders_4hour">
+      <buffersize>1</buffersize>
+      <concurrencylimit>1</concurrencylimit>
+      <custscript_loop_api_key></custscript_loop_api_key>
+      <custscript_loop_run_integration>orders</custscript_loop_run_integration>
+      <isdeployed>T</isdeployed>
+      <loglevel>AUDIT</loglevel>
+      <queueallstagesatonce>T</queueallstagesatonce>
+      <runasrole>ADMINISTRATOR</runasrole>
+      <status>SCHEDULED</status>
+      <title>Loop MR Orders 4 Hour</title>
+      <yieldaftermins>60</yieldaftermins>
+      <recurrence>
+        <daily>
+          <everyxdays>1</everyxdays>
+          <repeat>PT4H</repeat>
+          <startdate>2026-09-24</startdate>
+          <starttime>11:00:00Z</starttime>
+        </daily>
+      </recurrence>
+    </scriptdeployment>
+    <scriptdeployment scriptid="customdeploy_loop_mr_products_daily">
+      <buffersize>1</buffersize>
+      <concurrencylimit>1</concurrencylimit>
+      <custscript_loop_api_key></custscript_loop_api_key>
+      <custscript_loop_run_integration>products</custscript_loop_run_integration>
+      <isdeployed>T</isdeployed>
+      <loglevel>AUDIT</loglevel>
+      <queueallstagesatonce>T</queueallstagesatonce>
+      <runasrole>ADMINISTRATOR</runasrole>
+      <status>SCHEDULED</status>
+      <title>Loop MR Products Daily</title>
+      <yieldaftermins>60</yieldaftermins>
+      <recurrence>
+        <daily>
+          <everyxdays>1</everyxdays>
+          <repeat></repeat>
+          <startdate>2026-09-24</startdate>
+          <starttime>09:00:00Z</starttime>
+        </daily>
+      </recurrence>
+    </scriptdeployment>
+    <scriptdeployment scriptid="customdeploy_loop_mr_inventory_daily">
+      <buffersize>1</buffersize>
+      <concurrencylimit>1</concurrencylimit>
+      <custscript_loop_api_key></custscript_loop_api_key>
+      <custscript_loop_run_integration>inventory</custscript_loop_run_integration>
+      <isdeployed>T</isdeployed>
+      <loglevel>AUDIT</loglevel>
+      <queueallstagesatonce>T</queueallstagesatonce>
+      <runasrole>ADMINISTRATOR</runasrole>
+      <status>SCHEDULED</status>
+      <title>Loop MR Inventory Daily</title>
+      <yieldaftermins>60</yieldaftermins>
+      <recurrence>
+        <everyweekday>
+          <repeat></repeat>
+          <startdate>2026-09-24</startdate>
+          <starttime>09:00:00Z</starttime>
+        </everyweekday>
+      </recurrence>
+    </scriptdeployment>
   </scriptdeployments>
 </mapreducescript>

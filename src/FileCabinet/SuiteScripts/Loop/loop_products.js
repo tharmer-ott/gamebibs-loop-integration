@@ -31,7 +31,7 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
     // (e.g. to push image URLs added after the first sync). Variants already in Loop are
     // replaced by their Loop ID with the full payload built from NetSuite -- Loop's variant
     // update blanks any field left out, so it's always sent whole. Set back to false after.
-    var FULL_RESYNC = true;
+    var FULL_RESYNC = false;
 
     function buildHeaders() {
         return {
@@ -252,10 +252,11 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
             productData.images = [group.imageUrl];
         }
 
-        // Only tag known product-line prefixes; SKUs are upper-case (e.g. GBA-01-0001), so match case-insensitively.
+        // Only tag known product-line prefixes; SKUs are upper-case (e.g. GBA-01-0001), so lower-case
+        // the prefix -- Loop expects lower-case tags.
         var ALLOWED_TAGS = ['gba', 'gby', 'gbt', 'gbi'];
-        var tag = sku ? String(sku).trim().substring(0, 3) : '';
-        if (tag && ALLOWED_TAGS.indexOf(tag.toLowerCase()) !== -1) {
+        var tag = sku ? String(sku).trim().substring(0, 3).toLowerCase() : '';
+        if (tag && ALLOWED_TAGS.indexOf(tag) !== -1) {
             productData.tags = [tag];
         }
 

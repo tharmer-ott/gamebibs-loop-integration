@@ -7,6 +7,25 @@
   <notifyowner>T</notifyowner>
   <scriptfile>[/SuiteScripts/Loop/loop_returns.js]</scriptfile>
   <scriptdeployments>
+    <scriptdeployment scriptid="customdeploy_loop_returns_auto_dply">
+      <buffersize>1</buffersize>
+      <concurrencylimit>1</concurrencylimit>
+      <isdeployed>T</isdeployed>
+      <loglevel>AUDIT</loglevel>
+      <queueallstagesatonce>T</queueallstagesatonce>
+      <runasrole>ADMINISTRATOR</runasrole>
+      <status>SCHEDULED</status>
+      <title>Loop Returns Auto</title>
+      <yieldaftermins>60</yieldaftermins>
+      <recurrence>
+        <daily>
+          <everyxdays>1</everyxdays>
+          <repeat>PT6H</repeat>
+          <startdate>2026-09-24</startdate>
+          <starttime>13:00:00Z</starttime>
+        </daily>
+      </recurrence>
+    </scriptdeployment>
     <scriptdeployment scriptid="customdeploy_loop_returns_dply">
       <buffersize>1</buffersize>
       <concurrencylimit>1</concurrencylimit>

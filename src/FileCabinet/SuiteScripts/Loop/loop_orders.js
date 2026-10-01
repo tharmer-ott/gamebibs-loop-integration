@@ -273,7 +273,9 @@ function getInputData() {
             try {
                 var ffRec      = record.load({ type: record.Type.ITEM_FULFILLMENT, id: header.id, isDynamic: false });
                 var shipStatus = ffRec.getValue('shipstatus');
-                var carrier    = ffRec.getValue('shipcarrier') || null;
+                // Loop's shipping_carrier gets the fulfillment's ship method name (e.g. "USPS Ground
+                // Advantage"); shipcarrier only holds NetSuite's 'ups'/'nonups' codes.
+                var carrier    = ffRec.getText({ fieldId: 'shipmethod' }) || null;
 
                 // Tracking numbers live on the package sublist, not a body field
                 var trackingNumbers = [];
@@ -814,7 +816,8 @@ function getInputData() {
                     };
                     // GameBibs has a single location; LOOP_LOCATION_ID resolves by environment
                     fulfillObj.location = { id: '__LOOPID__' + LOOP_LOCATION_ID };
-                    if (f.shippingCarrier) fulfillObj.shipping_carrier = f.shippingCarrier;
+                    // Fall back to the SO's ship method when the fulfillment has none
+                    fulfillObj.shipping_carrier = f.shippingCarrier || shipMethodName;
                     return fulfillObj;
                 });
 

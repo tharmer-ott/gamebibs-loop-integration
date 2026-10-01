@@ -25,10 +25,6 @@ define(['N/https', 'N/log'], function (https, log) {
     var BC_API_BASE   = 'https://api.bigcommerce.com';
     var BC_STORE_HASH = 'v999z6750t';
 
-    // BigCommerce API token.
-    // TODO: Move to API Secrets in production prior to implementation
-    var BC_API_TOKEN  = '30qp5f1xx8pzkbwbd031wvrmtqjfrt';
-
     // The BigCommerce order metafield that carries the Loop session id. Metafields are matched
     // by (namespace, key) — the numeric `id` is a per-record auto-increment that differs on every
     // order, so it can't be hardcoded. Loop writes this one as namespace "loop", key "session_id".
@@ -42,7 +38,8 @@ define(['N/https', 'N/log'], function (https, log) {
         return {
             'Accept':       'application/json',
             'Content-Type': 'application/json',
-            'X-Auth-Token': BC_API_TOKEN
+            // BigCommerce API token, stored as the API Secret custsecret_bc_order_metadata
+            'X-Auth-Token': https.createSecureString({ input: '{custsecret_bc_order_metadata}' })
         };
     }
 

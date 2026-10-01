@@ -66,19 +66,19 @@
       <status>TESTING</status>
       <title>Sync Orders</title>
     </scriptdeployment>
-    <scriptdeployment scriptid="customdeploy_loop_sl_locations">
+    <scriptdeployment scriptid="customdeploy_loop_sl_customers">
       <allemployees>F</allemployees>
       <allpartners>F</allpartners>
       <allroles>F</allroles>
       <audslctrole></audslctrole>
-      <custscript_loop_sl_integration_type>locations</custscript_loop_sl_integration_type>
+      <custscript_loop_sl_integration_type>customers</custscript_loop_sl_integration_type>
       <eventtype></eventtype>
-      <isdeployed>T</isdeployed>
+      <isdeployed>F</isdeployed>
       <isonline>F</isonline>
       <loglevel>DEBUG</loglevel>
       <runasrole></runasrole>
-      <status>TESTING</status>
-      <title>Sync Locations</title>
+      <status>RELEASED</status>
+      <title>Sync Customers</title>
     </scriptdeployment>
     <scriptdeployment scriptid="customdeploy_loop_sl_products">
       <allemployees>F</allemployees>
@@ -108,19 +108,19 @@
       <status>TESTING</status>
       <title>Sync Inventory</title>
     </scriptdeployment>
-    <scriptdeployment scriptid="customdeploy_loop_sl_customers">
+    <scriptdeployment scriptid="customdeploy_loop_sl_locations">
       <allemployees>F</allemployees>
       <allpartners>F</allpartners>
       <allroles>F</allroles>
       <audslctrole></audslctrole>
-      <custscript_loop_sl_integration_type>customers</custscript_loop_sl_integration_type>
+      <custscript_loop_sl_integration_type>locations</custscript_loop_sl_integration_type>
       <eventtype></eventtype>
-      <isdeployed>F</isdeployed>
+      <isdeployed>T</isdeployed>
       <isonline>F</isonline>
       <loglevel>DEBUG</loglevel>
       <runasrole></runasrole>
-      <status>RELEASED</status>
-      <title>Sync Customers</title>
+      <status>TESTING</status>
+      <title>Sync Locations</title>
     </scriptdeployment>
   </scriptdeployments>
 </suitelet>
