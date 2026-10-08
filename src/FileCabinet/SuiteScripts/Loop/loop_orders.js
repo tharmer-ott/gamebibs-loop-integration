@@ -17,8 +17,14 @@ define(['N/search', 'N/record', 'N/https', 'N/log', 'N/runtime', './bc_order_met
     // so re-running these updates the existing Loop orders. When set, getInputData scopes to ONLY
     // these tranids and BYPASSES the status/entity/go-live-date business filters, so a specific
     // test order — even an older pre-cutoff one, or one already synced — can be force-(re)synced.
-    // Set to null/[] for the normal business-filtered set.
-    var TEST_ORDER_TRANIDS = null;
+    // One list per environment, resolved from envType like LOOP_LOCATION_ID, so a sandbox test
+    // order never scopes a production run (or vice versa). Set to null/[] for the normal
+    // business-filtered set.
+    var TEST_ORDER_TRANIDS_SANDBOX    = ['SO31065'];
+    var TEST_ORDER_TRANIDS_PRODUCTION = null;
+    var TEST_ORDER_TRANIDS = runtime.envType === runtime.EnvType.SANDBOX
+        ? TEST_ORDER_TRANIDS_SANDBOX
+        : TEST_ORDER_TRANIDS_PRODUCTION;
 
     // FULL RESYNC: re-send every order that matches the business filters, including ones already
     // in Loop (custbody_loop_order_id set) — e.g. to push the BC order # secondary_identifier
@@ -485,8 +491,8 @@ function getInputData() {
         }
 
         // Fetch discounts BEFORE building the payload so they're included in the first PUT.
-        // (The second PUT only fires when fulfillments/refunds exist — an order with discounts
-        // but no fulfillments would never get its discount data sent if we waited until Step 2.)
+        // (The second PUT only fires when refunds exist — an order with discounts
+        // but no refunds would never get its discount data sent if we waited until Step 2.)
         var nsDiscounts = [];
         try { nsDiscounts = getDiscounts(soId); } catch (discountErr) {
             log.error({ title: 'getDiscounts Failed [' + soId + ']', details: discountErr.message });
@@ -518,6 +524,35 @@ function getInputData() {
         var shipMethodName  = Array.isArray(shipMethodField) ? shipMethodField[0].text :
                               (shipMethodField && shipMethodField.text) ? shipMethodField.text :
                               (shipMethodField ? String(shipMethodField) : 'Standard Shipping');
+
+        // Fetch fulfillments BEFORE building the payload so they go out on the first PUT. They link
+        // to lines by order_line_item_external_id (soId_lineSeq), not Loop's line item IDs, so they
+        // don't have to wait for the order to exist in Loop. Isolated so a lookup failure just
+        // omits them — the order still syncs.
+        var nsFulfillments = [];
+        try { nsFulfillments = getFulfillments(soId); } catch (fulfillErr) {
+            log.error({ title: 'getFulfillments Failed [' + soId + ']', details: fulfillErr.message });
+        }
+        var loopFulfillments = nsFulfillments.map(function (f) {
+            var fulfillObj = {
+                external_id:      f.externalId,
+                status:           f.status,
+                fulfilled_at:     f.fulfilledAt,
+                tracking_numbers: f.trackingNumbers,
+                fulfillment_line_items: f.lines.map(function (l, idx) {
+                    return {
+                        external_id:                 f.externalId + '_' + idx,
+                        order_line_item_external_id: soId + '_' + l.soLineSeq,
+                        quantity:                    l.quantity
+                    };
+                })
+            };
+            // GameBibs has a single location; LOOP_LOCATION_ID resolves by environment
+            fulfillObj.location = { id: '__LOOPID__' + LOOP_LOCATION_ID };
+            // Fall back to the SO's ship method when the fulfillment has none
+            fulfillObj.shipping_carrier = f.shippingCarrier || shipMethodName;
+            return fulfillObj;
+        });
 
         // Build line items for Loop payload.
         // external_id must be GLOBALLY unique across all orders in Loop — not just unique within
@@ -669,7 +704,7 @@ function getInputData() {
                                  tax:                 { amount: returnCoverageTaxCents, currency_code: 'USD' },
                                  accepted_offer_mode: ['returnCoverage']
                              }] : [],
-            fulfillments:    [],
+            fulfillments:    loopFulfillments,
             refunds:         []
         };
 
@@ -755,6 +790,11 @@ function getInputData() {
 
         try {
             // Step 1: Create/upsert the order — get Loop line item IDs back
+            log.audit({
+                title:   'Loop Order Request [' + soId + ']',
+                details: 'SO: ' + soNumber + ' | PUT ' + LOOP_API_URL + '/orders — create/update order with ' +
+                         payload.line_items.length + ' line item(s), ' + payload.fulfillments.length + ' fulfillment(s)'
+            });
             var response = https.put({
                 url:     LOOP_API_URL + '/orders',
                 headers: buildHeaders(),
@@ -788,39 +828,16 @@ function getInputData() {
                 details: 'SO: ' + soNumber + ' | Loop Order ID: ' + loopOrderId
             });
 
-            // Step 2: Attach fulfillments and refunds if they exist
-            // Isolated try/catches so a lookup failure here never prevents the NS writeback
-            var nsFulfillments = [];
-            var nsRefunds      = [];
-            try { nsFulfillments = getFulfillments(soId); } catch (fulfillErr) {
-                log.error({ title: 'getFulfillments Failed [' + soId + ']', details: fulfillErr.message });
-            }
+            // Step 2: Attach refunds if they exist. Each refund points at Loop's line item ID
+            // (refund.line_item.id), which only exists once Step 1 has created the order.
+            // Fulfillments already went out on Step 1 and stay on the payload for this PUT.
+            // Isolated try/catch so a lookup failure here never prevents the NS writeback
+            var nsRefunds = [];
             try { nsRefunds = getRefunds(soId); } catch (refundErr) {
                 log.error({ title: 'getRefunds Failed [' + soId + ']', details: refundErr.message });
             }
 
-            if (nsFulfillments.length || nsRefunds.length) {
-                payload.fulfillments = nsFulfillments.map(function (f) {
-                    var fulfillObj = {
-                        external_id:      f.externalId,
-                        status:           f.status,
-                        fulfilled_at:     f.fulfilledAt,
-                        tracking_numbers: f.trackingNumbers,
-                        fulfillment_line_items: f.lines.map(function (l, idx) {
-                            return {
-                                external_id:                 f.externalId + '_' + idx,
-                                order_line_item_external_id: soId + '_' + l.soLineSeq,
-                                quantity:                    l.quantity
-                            };
-                        })
-                    };
-                    // GameBibs has a single location; LOOP_LOCATION_ID resolves by environment
-                    fulfillObj.location = { id: '__LOOPID__' + LOOP_LOCATION_ID };
-                    // Fall back to the SO's ship method when the fulfillment has none
-                    fulfillObj.shipping_carrier = f.shippingCarrier || shipMethodName;
-                    return fulfillObj;
-                });
-
+            if (nsRefunds.length) {
                 payload.refunds = nsRefunds.map(function (r) {
                     var firstLine    = r.lines[0];
                     var refundTotal  = r.lines.reduce(function (sum, l) { return sum + l.amount; }, 0);
@@ -835,6 +852,11 @@ function getInputData() {
                     };
                 });
 
+                log.audit({
+                    title:   'Loop Order Refund Request [' + soId + ']',
+                    details: 'SO: ' + soNumber + ' | PUT ' + LOOP_API_URL + '/orders — re-send order with ' +
+                             payload.refunds.length + ' refund(s) attached'
+                });
                 var updateResponse = https.put({
                     url:     LOOP_API_URL + '/orders',
                     headers: buildHeaders(),
@@ -843,7 +865,7 @@ function getInputData() {
 
                 if (updateResponse.code !== 200 && updateResponse.code !== 201) {
                     log.error({
-                        title:   'Loop Order Fulfillment/Refund Update Error [' + soId + ']',
+                        title:   'Loop Order Refund Update Error [' + soId + ']',
                         details: 'HTTP ' + updateResponse.code + ' | ' + updateResponse.body
                     });
                 }

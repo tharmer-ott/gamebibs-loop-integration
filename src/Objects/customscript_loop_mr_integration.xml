@@ -65,26 +65,6 @@
     </scriptcustomfield>
   </scriptcustomfields>
   <scriptdeployments>
-    <scriptdeployment scriptid="customdeploy_loop_mr_integration">
-      <buffersize>1</buffersize>
-      <concurrencylimit>1</concurrencylimit>
-      <custscript_loop_api_key></custscript_loop_api_key>
-      <custscript_loop_run_integration></custscript_loop_run_integration>
-      <isdeployed>T</isdeployed>
-      <loglevel>DEBUG</loglevel>
-      <queueallstagesatonce>T</queueallstagesatonce>
-      <runasrole>ADMINISTRATOR</runasrole>
-      <status>NOTSCHEDULED</status>
-      <title>Loop MR Integration</title>
-      <yieldaftermins>60</yieldaftermins>
-      <recurrence>
-        <single>
-          <repeat></repeat>
-          <startdate>2026-05-04</startdate>
-          <starttime>00:00:00Z</starttime>
-        </single>
-      </recurrence>
-    </scriptdeployment>
     <scriptdeployment scriptid="customdeploy_loop_mr_orders_4hour">
       <buffersize>1</buffersize>
       <concurrencylimit>1</concurrencylimit>
@@ -106,25 +86,44 @@
         </daily>
       </recurrence>
     </scriptdeployment>
-    <scriptdeployment scriptid="customdeploy_loop_mr_products_daily">
+    <scriptdeployment scriptid="customdeploy_loop_mr_integration">
       <buffersize>1</buffersize>
       <concurrencylimit>1</concurrencylimit>
       <custscript_loop_api_key></custscript_loop_api_key>
-      <custscript_loop_run_integration>products</custscript_loop_run_integration>
+      <custscript_loop_run_integration></custscript_loop_run_integration>
       <isdeployed>T</isdeployed>
-      <loglevel>AUDIT</loglevel>
+      <loglevel>DEBUG</loglevel>
       <queueallstagesatonce>T</queueallstagesatonce>
       <runasrole>ADMINISTRATOR</runasrole>
-      <status>SCHEDULED</status>
-      <title>Loop MR Products Daily</title>
+      <status>NOTSCHEDULED</status>
+      <title>Loop MR Integration</title>
       <yieldaftermins>60</yieldaftermins>
       <recurrence>
-        <daily>
-          <everyxdays>1</everyxdays>
+        <single>
           <repeat></repeat>
-          <startdate>2026-09-24</startdate>
-          <starttime>09:00:00Z</starttime>
-        </daily>
+          <startdate>2026-05-04</startdate>
+          <starttime>00:00:00Z</starttime>
+        </single>
+      </recurrence>
+    </scriptdeployment>
+    <scriptdeployment scriptid="customdeploy2">
+      <buffersize>1</buffersize>
+      <concurrencylimit>1</concurrencylimit>
+      <custscript_loop_api_key></custscript_loop_api_key>
+      <custscript_loop_run_integration>orders</custscript_loop_run_integration>
+      <isdeployed>T</isdeployed>
+      <loglevel>DEBUG</loglevel>
+      <queueallstagesatonce>T</queueallstagesatonce>
+      <runasrole>ADMINISTRATOR</runasrole>
+      <status>NOTSCHEDULED</status>
+      <title>Loop MR Integration 2</title>
+      <yieldaftermins>60</yieldaftermins>
+      <recurrence>
+        <single>
+          <repeat></repeat>
+          <startdate>2026-10-01</startdate>
+          <starttime>23:00:00Z</starttime>
+        </single>
       </recurrence>
     </scriptdeployment>
     <scriptdeployment scriptid="customdeploy_loop_mr_inventory_daily">
@@ -145,6 +144,27 @@
           <startdate>2026-09-24</startdate>
           <starttime>09:00:00Z</starttime>
         </everyweekday>
+      </recurrence>
+    </scriptdeployment>
+    <scriptdeployment scriptid="customdeploy_loop_mr_products_daily">
+      <buffersize>1</buffersize>
+      <concurrencylimit>1</concurrencylimit>
+      <custscript_loop_api_key></custscript_loop_api_key>
+      <custscript_loop_run_integration>products</custscript_loop_run_integration>
+      <isdeployed>T</isdeployed>
+      <loglevel>AUDIT</loglevel>
+      <queueallstagesatonce>T</queueallstagesatonce>
+      <runasrole>ADMINISTRATOR</runasrole>
+      <status>SCHEDULED</status>
+      <title>Loop MR Products Daily</title>
+      <yieldaftermins>60</yieldaftermins>
+      <recurrence>
+        <daily>
+          <everyxdays>1</everyxdays>
+          <repeat></repeat>
+          <startdate>2026-09-24</startdate>
+          <starttime>09:00:00Z</starttime>
+        </daily>
       </recurrence>
     </scriptdeployment>
   </scriptdeployments>

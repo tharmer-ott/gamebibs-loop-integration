@@ -18,7 +18,7 @@
  * matrix item parenting. Its members are InvtPart items whose standard
  * 'parent' field points back to it, same record type throughout.
  */
-define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, https, log) {
+define(['N/search', 'N/record', 'N/https', 'N/log', 'N/runtime'], function (search, record, https, log, runtime) {
 
     var LOOP_API_URL = 'https://api.loopreturns.com/api/v1';
 
@@ -31,7 +31,13 @@ define(['N/search', 'N/record', 'N/https', 'N/log'], function (search, record, h
     // (e.g. to push image URLs added after the first sync). Variants already in Loop are
     // replaced by their Loop ID with the full payload built from NetSuite -- Loop's variant
     // update blanks any field left out, so it's always sent whole. Set back to false after.
-    var FULL_RESYNC = false;
+    // One switch per environment, resolved from envType, so turning it on in sandbox never
+    // triggers a full resync in production (or vice versa).
+    var FULL_RESYNC_SANDBOX    = true;
+    var FULL_RESYNC_PRODUCTION = true;
+    var FULL_RESYNC = runtime.envType === runtime.EnvType.SANDBOX
+        ? FULL_RESYNC_SANDBOX
+        : FULL_RESYNC_PRODUCTION;
 
     function buildHeaders() {
         return {

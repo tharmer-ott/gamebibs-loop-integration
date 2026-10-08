@@ -56,6 +56,10 @@ define(['N/https', 'N/log'], function (https, log) {
         }
 
         var url = BC_API_BASE + '/stores/' + BC_STORE_HASH + '/v3/orders/' + bcOrderId + '/metafields';
+        log.audit({
+            title:   'BigCommerce Order Metafields Request',
+            details: 'GET ' + url + ' — read the Loop session_id for BC order ' + bcOrderId
+        });
         var response = https.get({ url: url, headers: buildHeaders() });
 
         if (response.code != 200) {

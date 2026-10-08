@@ -41,6 +41,7 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
     var LOOP_API_URL = 'https://api.loopreturns.com/api/v1';
 
     var RETURN_ID_FIELD = 'custbody_loop_return_id';
+    var EXCHANGE_PARENT_FIELD = 'custbody_loop_exchange_parent'; // exchange SO -> original SO
 
     var HANDLING_FEE_ITEM        = '1222'; // Adjustment Item
     var HANDLING_FEE_DESCRIPTION = 'Return Handling Fee';
@@ -528,6 +529,7 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
         // Pending Fulfillment — skip approval routing so we can ship + bill the swap immediately.
         so.setValue({ fieldId: 'orderstatus', value: 'B' });
         so.setValue({ fieldId: RETURN_ID_FIELD, value: String(ret.id) });
+        so.setValue({ fieldId: EXCHANGE_PARENT_FIELD, value: soId });
 
         var added = 0;
         (ret.exchanges || []).forEach(function (ex) {
