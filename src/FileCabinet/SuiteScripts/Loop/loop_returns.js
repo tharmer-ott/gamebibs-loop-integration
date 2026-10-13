@@ -525,6 +525,7 @@ define(['N/runtime', 'N/search', 'N/record', 'N/https', 'N/log'], function (runt
         dbg('createExchangeSalesOrder', 'orig SO ' + soId + ' entity=' + entity + ' | exchanges=' + (ret.exchanges || []).length);
 
         var so = record.create({ type: record.Type.SALES_ORDER, isDynamic: true });
+        // TODO: set tranid to original so tranid + "-1"
         so.setValue({ fieldId: 'entity', value: entity });
         // Pending Fulfillment — skip approval routing so we can ship + bill the swap immediately.
         so.setValue({ fieldId: 'orderstatus', value: 'B' });
